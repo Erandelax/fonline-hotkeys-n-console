@@ -1,0 +1,425 @@
+#include "_defines.fos"
+
+#ifdef __CLIENT
+#define __CMD__
+#include "_client_defines.fos"
+#include "cmd_h.fos"
+
+#define CMD_CATYPE_EVENT  (0)
+#define CMD_CATYPE_UNSAFE (1)
+#define CMD_CATYPE_SAFE   (2)
+#define CMD_CATYPE_CALL	  (3)
+
+class CmdRecord
+{
+	string Tag;
+	int AccessLevel;
+	string Callback;
+	int CallbackType;
+	int[] ArgTypes;
+
+	CmdRecord(string tag,int accessLevel,string callback,int[] argTypes){
+		this.Tag = tag;
+		this.AccessLevel = accessLevel;
+		this.Callback = callback;
+		this.ArgTypes = argTypes;
+		if(tag[0] == "_") this.CallbackType = CMD_CATYPE_SAFE;
+		else if(tag[0] == "u") this.CallbackType = CMD_CATYPE_UNSAFE;
+		else if(tag[0] == "e") this.CallbackType = CMD_CATYPE_EVENT;
+		else this.CallbackType = CMD_CATYPE_CALL;
+	}
+}
+
+// Loaded cmds list
+dictionary CmdRegistry;
+
+// String to argument type converter
+dictionary ArgType = {
+	{"CMD_NONE",CMD_NONE},
+	{"CMD_ALL",CMD_ALL},
+	{"CMD_ANY",CMD_ANY},
+	{"CMD_CLIENT",CMD_CLIENT},
+	{"CMD_TESTER",CMD_TESTER},
+	{"CMD_MODER",CMD_MODER},
+	{"CMD_ADMIN",CMD_ADMIN},
+	{"CMD_SELF",CMD_SELF},
+	{"CMD_TARGET",CMD_TARGET},
+	{"CMD_SELECT",CMD_SELECT},
+	{"CMD_GROUP",CMD_GROUP},
+	{"CMD_ID",CMD_ID},
+	{"CMD_STR",CMD_STR}
+};
+
+// String to key code converter
+dictionary ArgKeys = { 
+	{"ESCAPE",DIK_ESCAPE},
+	{"1",DIK_1},
+	{"2",DIK_2},
+	{"3",DIK_3},
+	{"4",DIK_4},
+	{"5",DIK_5},
+	{"6",DIK_6},
+	{"7",DIK_7},
+	{"8",DIK_8},
+	{"9",DIK_9},
+	{"0",DIK_0},
+	{"MINUS",DIK_MINUS},
+	{"EQUALS",DIK_EQUALS},
+	{"BACK",DIK_BACK},
+	{"TAB",DIK_TAB},
+	{"Q",DIK_Q},
+	{"W",DIK_W},
+	{"E",DIK_E},
+	{"R",DIK_R},
+	{"T",DIK_T},
+	{"Y",DIK_Y},
+	{"U",DIK_U},
+	{"I",DIK_I},
+	{"O",DIK_O},
+	{"P",DIK_P},
+	{"LBRACKET",DIK_LBRACKET},
+	{"RBRACKET",DIK_RBRACKET},
+	{"RETURN",DIK_RETURN},
+	{"LCONTROL",DIK_LCONTROL},
+	{"A",DIK_A},
+	{"S",DIK_S},
+	{"D",DIK_D},
+	{"F",DIK_F},
+	{"G",DIK_G},
+	{"H",DIK_H},
+	{"J",DIK_J},
+	{"K",DIK_K},
+	{"L",DIK_L},
+	{"SEMICOLON",DIK_SEMICOLON},
+	{"APOSTROPHE",DIK_APOSTROPHE},
+	{"GRAVE",DIK_GRAVE},
+	{"LSHIFT",DIK_LSHIFT},
+	{"BACKSLASH",DIK_BACKSLASH},
+	{"Z",DIK_Z},
+	{"X",DIK_X},
+	{"C",DIK_C},
+	{"V",DIK_V},
+	{"B",DIK_B},
+	{"N",DIK_N},
+	{"M",DIK_M},
+	{"COMMA",DIK_COMMA},
+	{"PERIOD",DIK_PERIOD},
+	{"SLASH",DIK_SLASH},
+	{"RSHIFT",DIK_RSHIFT},
+	{"MULTIPLY",DIK_MULTIPLY},
+	{"LMENU",DIK_LMENU},
+	{"SPACE",DIK_SPACE},
+	{"CAPITAL",DIK_CAPITAL},
+	{"F1",DIK_F1},
+	{"F2",DIK_F2},
+	{"F3",DIK_F3},
+	{"F4",DIK_F4},
+	{"F5",DIK_F5},
+	{"F6",DIK_F6},
+	{"F7",DIK_F7},
+	{"F8",DIK_F8},
+	{"F9",DIK_F9},
+	{"F10",DIK_F10},
+	{"NUMLOCK",DIK_NUMLOCK},
+	{"SCROLL",DIK_SCROLL},
+	{"NUMPAD7",DIK_NUMPAD7},
+	{"NUMPAD8",DIK_NUMPAD8},
+	{"NUMPAD9",DIK_NUMPAD9},
+	{"SUBTRACT",DIK_SUBTRACT},
+	{"NUMPAD4",DIK_NUMPAD4},
+	{"NUMPAD5",DIK_NUMPAD5},
+	{"NUMPAD6",DIK_NUMPAD6},
+	{"ADD",DIK_ADD},
+	{"NUMPAD1",DIK_NUMPAD1},
+	{"NUMPAD2",DIK_NUMPAD2},
+	{"NUMPAD3",DIK_NUMPAD3},
+	{"NUMPAD0",DIK_NUMPAD0},
+	{"DECIMAL",DIK_DECIMAL},
+	{"F11",DIK_F11},
+	{"F12",DIK_F12},
+	{"NUMPADENTER",DIK_NUMPADENTER},
+	{"RCONTROL",DIK_RCONTROL},
+	{"DIVIDE",DIK_DIVIDE},
+	{"SYSRQ",DIK_SYSRQ},
+	{"RMENU",DIK_RMENU},
+	{"PAUSE",DIK_PAUSE},
+	{"HOME",DIK_HOME},
+	{"UP",DIK_UP},
+	{"PRIOR",DIK_PRIOR},
+	{"LEFT",DIK_LEFT},
+	{"RIGHT",DIK_RIGHT},
+	{"END",DIK_END},
+	{"DOWN",DIK_DOWN},
+	{"NEXT",DIK_NEXT},
+	{"INSERT",DIK_INSERT},
+	{"DELETE",DIK_DELETE},
+	{"LWIN",DIK_LWIN},
+	{"RWIN",DIK_RWIN} 
+};
+
+bool CmdAdd(string tag, int accessLevel, string callback, int arg1type = CMD_NONE, int arg2type = CMD_NONE, int arg3type = CMD_NONE, int arg4type = CMD_NONE, int arg5type = CMD_NONE){
+	if( CmdRegistry.exists(tag) ) return false;
+	int[] argTypes;
+	if(arg1type != CMD_NONE) argTypes.insertLast(arg1type);
+	if(arg2type != CMD_NONE) argTypes.insertLast(arg2type);
+	if(arg3type != CMD_NONE) argTypes.insertLast(arg3type);
+	if(arg4type != CMD_NONE) argTypes.insertLast(arg4type);
+	if(arg5type != CMD_NONE) argTypes.insertLast(arg5type);
+	CmdRegistry.set(tag,CmdRecord(tag,accessLevel,callback, argTypes));
+	Log("Registered command <"+tag+"> for <"+callback+">");
+	return true;
+}
+
+bool CmdRun(string tag,string arguments = ""){
+	CmdRecord@ record;
+
+	if( not CmdRegistry.get(tag,record) )  
+		return false;
+
+	switch(record.CallbackType){
+		case CMD_CATYPE_EVENT:
+			//CreateTimeEvent(__FullSecond+1, record.Callback, false);
+			return true;
+		case CMD_CATYPE_UNSAFE:
+			RunServerScriptUnsafe(record.Callback,0,0,0,arguments,null);
+			return true;
+		case CMD_CATYPE_SAFE:
+			RunServerScript(record.Callback,0,0,0,arguments,null);
+			return true;
+		case CMD_CATYPE_CALL:
+			CustomCall(tag);
+			return true;
+	}
+	return false;
+}
+
+void CmdInit(){
+	CmdAdd("GLOBAL:DEBUG",CMD_ANY,"cmd@unsafe_Debug");
+
+	CmdAdd("CRITTER:EXPLODE",CMD_MODER|CMD_ADMIN,"blabla@unsafe_CritExplode",CMD_TARGET|CMD_CRITTER_ID,CMD_ANIM_TYPE);
+	// Load configuration
+	CmdConfigure();
+}
+
+void CmdConfigure(){
+	file f;
+
+	if( f.open("Commands.txt","r") >= 0 ){  
+		Log("Loading <Commands.txt>...");
+
+		while( not f.isEndOfFile() ){
+			string line = f.readLine();
+			line = (split(line,"//"))[0]; // Обрезаем комментарии
+			string@[] parts = split(line,"@");
+
+			if(parts.length > 1){ // Если в строке есть левая и правая часть, разделенные @
+				// Выделяем параметры из правой части
+				string tag;
+				string[] strArgs;
+				int[][] intArgs;
+				uint expectTag = 2; // 2 - ожидание, 1 - запись, 0 - готово
+				uint expectArg = 2;
+				uint argsOffset = 0;
+
+				Log("Parsing command from <Commands.txt>...");
+
+				// Выделяем тег команды и типы передаваемых аргументов
+				for(uint pos = 0; pos < parts[1].length(); pos ++){
+					// Парсим тег команды
+
+					if( expectTag > 0 && parts[1][pos] != " " && parts[1][pos] != "\t" && parts[1][pos] != "\r" && parts[1][pos] != "\n" ){
+						if(expectTag > 1){
+							expectTag = 1;
+						}
+						tag += parts[1][pos];
+						continue;
+
+					} else if(expectTag == 1) {
+						Log("Action: <"+tag+">");
+						expectTag = 0;
+					}
+
+					// Парсим типы аргументов
+					if( expectTag == 0 && expectArg > 0 && parts[1][pos] != " " && parts[1][pos] != "\t" && parts[1][pos] != "\r" && parts[1][pos] != "\n" ){
+						if(expectArg > 1) expectArg = 1;
+						if(strArgs.length <= argsOffset){
+							strArgs.resize(argsOffset + 1);
+							strArgs[argsOffset] = "";
+						}
+						strArgs[argsOffset] += parts[1][pos];
+						continue;
+
+					} else if( expectArg == 1 ) {
+						if(strArgs.length > argsOffset) Log("+ Arguments: <"+strArgs[argsOffset]+">");
+						argsOffset++;
+						continue;
+					}
+				}
+
+
+
+				// Выделяем параметры из левой части
+				if(line[0] == "%"){ // Если строка начинается с % - парсится чат-команда
+					string cmd;
+
+					Log("~ Parsing chat command...");
+
+					// Выделяем части слева от @ команду без пробелов, табов и %
+					for(uint pos = 0; pos < parts[0].length(); pos++) 
+						if(parts[0][pos] != "%" && parts[0][pos] != " " && parts[0][pos] != "\t")
+							cmd += parts[0][pos];
+
+					Log("+ Command: <"+cmd+">");
+					// Регистрируем сообщение
+
+
+				}else if(line[0] == "#"){ // Если строка начинается с # - парсится хоткей
+					string[] strKeys;
+
+					Log("~ Parsing hotkey...");
+					uint keysOffset = 0;
+					uint expectKey = 2;
+					// Парсим клавиши
+					for(uint pos = 0; pos < parts[0].length(); pos++){
+						if( expectKey > 0 && parts[0][pos] != "#" && parts[0][pos] != " " && parts[0][pos] != "\t" && parts[0][pos] != "\r" && parts[0][pos] != "\n" ){
+							if(expectKey > 1) expectKey = 1;
+							if(strKeys.length <= keysOffset){
+								strKeys.resize(keysOffset+1);
+								strKeys[keysOffset] = "";
+							}
+							strKeys[keysOffset] += parts[0][pos];
+							continue;
+
+						}else if(expectKey == 1){
+							if(strKeys.length > keysOffset) Log("+ Key: <"+strKeys[keysOffset]+">");
+							keysOffset++;
+							continue;
+						}
+					}
+				}
+			}
+		}
+	}else Log("File <Commands.txt> not found!");
+}
+
+#endif
+
+#ifdef __SERVER
+
+void unsafe_Debug(Critter& player, int param0, int param1, int param2, string@ param3, int[]@ param4){
+	player.Say(SAY_NETMSG,"OK");
+}
+
+#endif
+
+/*class CommandItem{
+	string Tag;
+	string FuncName;
+	int AccessLevel;
+	int[] ArgTypes;
+	CommandItem(string tag, int accessLevel, string funcName, int[] argTypes, int funcType){
+		this.Tag = tag;
+		this.FuncName = funcName;
+		this.AccessLevel = accessLevel;
+		this.ArgTypes = argTypes;
+	}
+}
+*/
+//class CommandItem {}
+
+//cmd::Add("GLOBAL:NONE",cmd::all);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Список команд: Общие
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Проверяет модуль на работоспособность
+// GLOBAL:DEBUG <void> 
+/*cmd::Add("GLOBAL:DEBUG",{cmd::all});
+
+// Показать ГМ-панель по управлению чем-либо игроку <CritterId:Player>
+// GLOBAL:GMGUI <CritterId:Player> <CritterId:Target>
+// GLOBAL:GMGUI <CritterId:Player> <ItemId:Target>
+// GLOBAL:GMGUI <CritterId:Player> <void>
+cmd::Add("GLOBAL:GMGUI",{cmd::moder,cmd::admin},"console@e_cmd_criter_gmgui",{cmd::self},{cmd::target,cmd::none});
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Список команд: Криттер
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CRITTER:GOD <CritterId:Target> 								// Включает-отключает режим бога
+cmd::Add("CRITTER:GOD",{cmd::moder,cmd::admin},"console@e_cmd_critter_god",{cmd::target});
+
+
+// CRITTER:GM <CritterId:Target> 								// Включает-отключает ГМку криттера
+cmd::Add("CRITTER:GM",{cmd::admin},"console@e_cmd_critter_gm",{cmd::target});*/
+
+// CRITTER:ID <CritterId:Player> <CritterId[]:Target> 			// Показать ID цели игроку
+/*#define CMD_CRITTER_ID 				(102) 
+
+
+// CRITTER:INFO <CritterId:Player> <CritterId:Target> 			// Показать чарскрин цели игроку
+#define CMD_CRITTER_INFO			(103) 
+
+// CRITTER:PARAM <CritterId[]:Target> <int:Param> [<int:Value>] // Показать или установить параметр Id цели
+#define CMD_CRITTER_PARAM			(104) 
+
+// CRITTER:KILL <CritterId[]:Target> [<AnimationId>] 			// Убить криттера с заданной анимацией
+#define CMD_CRITTER_KILL			(105)
+
+// CRITTER:KNOCK <CritterId[]:Target> [<int:Length>] 			// Укладывает криттера с -АР на Length секунд
+#define CMD_CRITTER_KNOCK			(106)
+
+// CRITTER:RESPAWN <CritterId[]:Target> 						// Реанимирует цель
+#define CMD_CRITTER_RESPAWN			(107)
+
+// CRITTER:INVENTORY <CritterId:Player> <CritterId:Target> 		// Запускает прямой между целью и игроком
+#define CMD_CRITTER_INVENTORY		(108)
+
+// CRITTER:BARTER <CritterId:Player> <CritterId:Target>			// Запускает окно бартера между целью и игроком
+#define CMD_CRITTER_BARTER			(109)
+
+// CRITTER:EQUIPMENT <CritterId:Player> <CritterId:Target> 		// Запускает режим экипировки между целью и игроком
+#define CMD_CRITTER_EQUIPMENT		(110)
+
+// CRITTER:SKIN <CritterId:Target> <int:SkinId>					// Запускает диалог выбора скина для цели, либо скин по ID
+#define CMD_CRITTER_SKIN			(111)
+
+// CRITTER:EFFECT <CritterId:Target> <int:EffectId> 			// Запускает диалог выбора эффектов, либо эффект по ID
+#define CMD_CRITTER_EFFECT			(112)
+
+// CRITTER:SELECT <CritterId:Player> <CritterId:Target> 		// Выделяет цель в интерфейсе игрока и выбирает его
+// CRITTER:SELECT <CritterId:Player> <0>						// Сбрасывает выделение
+#define CMD_CRITTER_SELECT			(110)
+
+// CRITTER:GROUP <CritterId:Player>   <int:GroupId> 			// Выбирает группу для управления игроком
+// CRITTER:GROUP <CritterId[]:Target> <int:GroupId> 			// Назначает криттеру группу
+// CRITTER:GROUP <CritterId:Player>   <0>						// Сбрасывает выделение управляемых игроком групп
+// CRITTER:GROUP <CritterId[]:Target> <0>						// Удаляет криттеров из группы / распускает группу
+#define CMD_CRITTER_GROUP			(111)
+
+// CRITTER:TELEPORT <CritterId[]:Target> <CritterId:Destination> // Телепортирует криттера-цель к криттеру-назначению
+// CRITTER:TELEPORT <CritterId:Target> <0>					     // Телепортирует криттера-цель к курсору
+#define CMD_CRITTER_TELEPORT 		(112)
+
+// CRITTER:WALK <CritterId[]:Slave> <CritterId:Destination> 	// Заставляет криттеров прошагать к другому криттеру
+// CRITTER:WALK <CritterId:Slave> <0>					    	// Заставляе криттеров прошагать к курсору
+#define CMD_CRITTER_WALK			(113)
+
+// CRITTER:RUN <CritterId[]:Slave> <CritterId:Destination> 		// Заставляет криттеров пробечь к другому криттеру
+// CRITTER:RUN <CritterId:Slave> <0>					   		// Заставляе криттеров пробечь к курсору
+#define CMD_CRITTER_RUN				(114)
+
+// CRITTER:STOP <CritterId[]:Slave> 				    		// Останавливает криттеров, сбрасывая их планы
+#define CMD_CRITTER_STOP			(115)
+
+// CRITTER:STOP <CritterId[]:Slave> <int:Angle>	    			// Поворачивает криттера на заданный угол
+#define CMD_CRITTER_TURN			(116)
+
+// CRITTER:ATTACK <CritterId[]:Slave> <CritterId:Target>		// Заставляет криттеров атаковать криттера (не из группы)
+#define CMD_CRITTER_ATTACK			(117)
+
+// CRITTER:LEX <CritterId[]:Target> <string:Lex>				// Устанавливает криттеру лексему
+#define CMD_CRITTER_LEX				(118)
+
+// CRITTER:SAY	<CritterId[]:Target> <int:Type> <string:Phrase> // Псевдоним Target.Say(Type,Phrase)
+#define CMD_CRITTER_SAY				(119)*/
