@@ -195,8 +195,6 @@ bool CmdRun(string tag,string arguments = ""){
 
 void CmdInit(){
 	CmdAdd("GLOBAL:DEBUG",CMD_ANY,"cmd@unsafe_Debug");
-
-	CmdAdd("CRITTER:EXPLODE",CMD_MODER|CMD_ADMIN,"blabla@unsafe_CritExplode",CMD_TARGET|CMD_CRITTER_ID,CMD_ANIM_TYPE);
 	// Load configuration
 	CmdConfigure();
 }
@@ -206,17 +204,19 @@ void CmdConfigure(){
 
 	if( f.open("Commands.txt","r") >= 0 ){  
 		Log("Loading <Commands.txt>...");
+		uint lineNum = 0; // Номер текущей строки (для ошибок в лог)
 
 		while( not f.isEndOfFile() ){
 			string line = f.readLine();
+			lineNum++;
 			line = (split(line,"//"))[0]; // Обрезаем комментарии
 			string@[] parts = split(line,"@");
 
 			if(parts.length > 1){ // Если в строке есть левая и правая часть, разделенные @
 				// Выделяем параметры из правой части
-				string tag;
-				string[] strArgs;
-				int[][] intArgs;
+				string tag; // <OUTPUT>
+				string[] strArgs; // Промежуточный результат парсинга аргументов
+				int[][] intArgs; // Результат парсинга аргументов // <OUTPUT>
 				uint expectTag = 2; // 2 - ожидание, 1 - запись, 0 - готово
 				uint expectArg = 2;
 				uint argsOffset = 0;
@@ -250,17 +250,33 @@ void CmdConfigure(){
 						continue;
 
 					} else if( expectArg == 1 ) {
-						if(strArgs.length > argsOffset) Log("+ Arguments: <"+strArgs[argsOffset]+">");
+						if( strArgs.length > argsOffset ) {
+							Log("+ Arguments: <" + strArgs[argsOffset] + ">");
+							// Конвертируем текстовые аргументы в значения констант
+							string@[] _strArgs = splitEx(strArgs[argsOffset],"|");
+							int[] _intArgs;
+							int value;
+							bool isError = false;
+							for(uint apos = 0; apos < _strArgs.length; apos++) if( ArgType.get(_strArgs[apos],value) ){
+								_intArgs.insertLast(int(value));
+							} else {
+								Log("! ERROR: Unknown argument type <"+_strArgs[apos]+">, line :"+lineNum+"!");
+								//isError = true; // Раскомментировать чтобы не парсились команды с неизвестными аргументами
+								break;
+							}
+							if(not isError){
+								// Parsed successfully
+								intArgs.insertLast(_intArgs);
+							}
+						}
 						argsOffset++;
 						continue;
 					}
 				}
 
-
-
 				// Выделяем параметры из левой части
 				if(line[0] == "%"){ // Если строка начинается с % - парсится чат-команда
-					string cmd;
+					string cmd; // Чат-команда <OUTPUT>
 
 					Log("~ Parsing chat command...");
 
@@ -269,16 +285,17 @@ void CmdConfigure(){
 						if(parts[0][pos] != "%" && parts[0][pos] != " " && parts[0][pos] != "\t")
 							cmd += parts[0][pos];
 
-					Log("+ Command: <"+cmd+">");
-					// Регистрируем сообщение
+					Log("+ Command: <" + cmd + ">");
+					// Экспортируем результат
 
 
 				}else if(line[0] == "#"){ // Если строка начинается с # - парсится хоткей
 					string[] strKeys;
-
+					int[] intKeys; // Сочетание клавиш <OUTPUT>
 					Log("~ Parsing hotkey...");
 					uint keysOffset = 0;
 					uint expectKey = 2;
+					bool isError = false;
 					// Парсим клавиши
 					for(uint pos = 0; pos < parts[0].length(); pos++){
 						if( expectKey > 0 && parts[0][pos] != "#" && parts[0][pos] != " " && parts[0][pos] != "\t" && parts[0][pos] != "\r" && parts[0][pos] != "\n" ){
@@ -291,11 +308,22 @@ void CmdConfigure(){
 							continue;
 
 						}else if(expectKey == 1){
-							if(strKeys.length > keysOffset) Log("+ Key: <"+strKeys[keysOffset]+">");
+							if( strKeys.length > keysOffset ) {
+								 Log("+ Key: <" + strKeys[keysOffset] + ">");
+								 // Конвертируем имена клавиш в KeyCode
+								 int value;
+								 if( ArgKeys.get(strKeys[keysOffset],value) ){
+								 	intKeys.insertLast(int(value));
+								 } else {
+								 	Log("! ERROR: Unknown Key Code: <"+strKeys[keysOffset]+">, line :"+lineNum+"!");
+								 	isError = true;
+								 }
+							}
 							keysOffset++;
 							continue;
 						}
 					}
+					// Экспортируем результат
 				}
 			}
 		}
