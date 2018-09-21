@@ -5,6 +5,7 @@
 #define __INPUT_MODULE__
 #include "input_h.fos"
 
+
 import void TryExit() from "gui_screens";
 import void NextCursor() from "gui_screens";
 import void ThrowingKeyDown( uint8 key ) from "throwing";
@@ -310,22 +311,24 @@ ArgumentHandler@ ParseArgumentHandlers(string tag, string macro){
 interface ArgumentHandler{ ArgumentValue@ Run(); }
 
 class ArgumentHandler_CUSTOM : ArgumentHandler
-{
+{ 
     protected int value = 0;
     ArgumentHandler_CUSTOM(int value){ this.value = value; }
 
-    ArgumentValue@ Run(){
+    ArgumentValue@ Run(){ // Get custom named <int>
         ArgumentValue value = this.value;
+        value.Type = ARG_CUSTOM;
         return value;
     }
 }
 
 class ArgumentHandler_SELF : ArgumentHandler 
 {
-    ArgumentValue@ Run(){
+    ArgumentValue@ Run(){ // Get Chosen.Id
         CritterCl@ cr = GetChosen();
         if(cr is null) return null;
         ArgumentValue value = cr.Id;
+        value.Type = ARG_CRITTER;
         return value;
     }
 }
@@ -383,11 +386,12 @@ class ArgumentHandler_GROUP : ArgumentHandler
 
 class ArgumentHandler_TARGET : ArgumentHandler 
 {
-    ArgumentValue@ Run(){ 
+    ArgumentValue@ Run(){ // Get hex under cursor XY
         uint16 x = 0, y = 0;
         if( GetMonitorHex( __MouseX, __MouseY, x, y ) ){
             uint16[] coords = { x, y };
             ArgumentValue value = coords;
+            value.Type = ARG_HEX;
             return value;
         }
         return null;
@@ -396,10 +400,11 @@ class ArgumentHandler_TARGET : ArgumentHandler
 
 class ArgumentHandler_TARGET_CRITTER : ArgumentHandler 
 {
-    ArgumentValue@ Run(){ 
+    ArgumentValue@ Run(){ // Get critter under cursor XY
         CritterCl@ cr =  GetMonitorCritter( __MouseX, __MouseY );
         if(cr is null) return null;
         ArgumentValue value = cr.Id;
+        value.Type = ARG_CRITTER;
         return value;
     }
 }
@@ -422,16 +427,17 @@ class ArgumentHandler_TARGET_CRITTER_FOV : ArgumentHandler
     }
 
     ArgumentValue@ Run(){
-        return null;
+        return null; // @@todo
     }
 }
 
 class ArgumentHandler_TARGET_ITEM : ArgumentHandler 
 {
-    ArgumentValue@ Run(){ 
+    ArgumentValue@ Run(){ // Get item under cursor ID
         ItemCl@ cr =  GetMonitorItem( __MouseX, __MouseY );
         if(cr is null) return null;
         ArgumentValue value = cr.Id;
+        value.Type = ARG_ITEM;
         return value;
     }
 }
@@ -454,7 +460,7 @@ class ArgumentHandler_TARGET_ITEM_FOV : ArgumentHandler
     }
 
     ArgumentValue@ Run(){
-        return null;
+        return null; // @@todo
     }
 }
 
@@ -466,10 +472,11 @@ class ArgumentHandler_QUICK : ArgumentHandler
         this.SlotId = slotId;
     }
 
-    ArgumentValue@ Run(){
+    ArgumentValue@ Run(){ // Get quickbar item id from slotid
         ItemCl@ item = quickItem(this.SlotId);
         if(item is null) return null;
         ArgumentValue value = item.Id;
+        value.Type = ARG_ITEM;
         return value;
     }
 }
@@ -481,13 +488,26 @@ class ArgumentHandler_SLOT : ArgumentHandler
         this.SlotId = slotId;
     }
 
-    ArgumentValue@ Run(){
+    ArgumentValue@ Run(){ // Get item.id from chosen' slot
         CritterCl@ cr = GetChosen();
         if(cr is null) return null;
-        ItemCl@ item = cr.GetItem(0,this.SlotId);
-        if(item is null) return null;
-        ArgumentValue value = item.Id;
-        return value;
+        if( SLOT_ARMOR == this.SlotId || SLOT_HAND1 == this.SlotId || SLOT_HAND2 == this.SlotId ){
+            // Get one Id of SlotId item
+            ItemCl@ item = cr.GetItem(0,this.SlotId);
+            if(item is null) return null;
+            ArgumentValue value = item.Id;
+            value.Type = ARG_ITEM;
+            return value;
+        }else{ // Get array<int> of item ids from slot SlotId
+            ItemCl@[] items;
+            uint count = cr.GetItems(this.SlotId,items);
+            if(0 == count) return null;
+            uint[] Ids;
+            for(uint pos = 0; pos < count; pos++) Ids.insertLast(items[pos].Id);
+            ArgumentValue value = Ids;
+            value.Type = ARG_ITEMS;
+            return value;
+        }
     }
 }
 
@@ -496,8 +516,9 @@ class ArgumentHandler_NUMBER : ArgumentHandler
     int Preset = 0;
     ArgumentHandler_NUMBER(int preset = 0){ this.Preset = preset; }
 
-    ArgumentValue@ Run(){
+    ArgumentValue@ Run(){ // Get custom <int>
         ArgumentValue value = this.Preset;
+        value.Type = ARG_INT;
         return value;
     }
 }
@@ -507,8 +528,9 @@ class ArgumentHandler_STRING : ArgumentHandler
     string value = "";
     ArgumentHandler_STRING(string value){ this.value = value; }
 
-    ArgumentValue@ Run(){
+    ArgumentValue@ Run(){ // Get custom <string>
         ArgumentValue value = this.value;
+        value.Type = ARG_STRING;
         return value;
     }
 }
