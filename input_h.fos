@@ -146,6 +146,8 @@ shared class ArgumentSerializer{
 		return this.Add(argType,container);
 	}
 	ArgumentSerializer@ Serialize(string& argString, int[]& argInt){
+		// Подтверждение типа записи "массив аргументов"
+		argInt.insertLast(777);
 		for(uint pos = 0, length = this.ArgTypes.length; pos < length; pos++){
 			// Кадр начинается с типа аргумента
 			argInt.insertLast(this.ArgTypes[pos]);
