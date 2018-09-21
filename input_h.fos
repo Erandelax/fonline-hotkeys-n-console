@@ -60,6 +60,10 @@ shared class ArgumentValue
 		this._storage.store(values);
 		return this;	
 	}
+	ArgumentValue@ opAssign(uint[]& values){ // SET ARG_INTS|ARG_CRITTERS|ARG_ITEMS
+		this._storage.store(values);
+		return this;	
+	}
 	ArgumentValue@ opAssign(uint16[]& values){ // SET ARG_HEX|ARG_PATH
 		this._storage.store(values);
 		return this;		
