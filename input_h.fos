@@ -1,0 +1,293 @@
+#ifndef __INPUT__
+#define __INPUT__
+
+#include "_client_defines.fos"
+
+#ifndef __INPUT_MODULE__
+import bool IsKeyPressed( int key ) from "input";
+import bool IsMousePressed( int button ) from "input";
+import bool IsCtrlDown() from "input";
+import bool IsAltDown() from "input";
+import bool IsShiftDown() from "input";
+#endif
+
+#endif // __INPUT__
+
+//////////////////////////////////////////////////////////////////////////////*/
+// Command argument types
+#define ARG_VOID 				(0) 	// Argument is absent
+#define ARG_INT 				(1) 	// Custom number <int>
+#define ARG_INTS 				(1<<1)  // Array of numbers <int>
+#define ARG_STRING 				(1<<2) 	// Custom string <string>
+#define ARG_CRITTER 			(1<<3)  // Single critter Id <int>
+#define ARG_CRITTERS 			(1<<4) 	// Multiple critter Ids <int[]>
+#define ARG_ITEM 				(1<<5)  // Single item Id <int>
+#define ARG_ITEMS 				(1<<6)  // Multiple item Ids <int[]>
+#define ARG_HEX					(1<<7)  // Hex coordinates <uint16[](2)>
+#define ARG_PATH 				(1<<8)  // Hex coordinates pair <uint16[](4)>
+#define ARG_CUSTOM 				(1<<9)  // Custom argument value <int>
+
+// Алиасы сущностей для клиента
+#ifdef __CLIENT
+	#ifndef Item 
+	#define Item ItemCl
+	#define Critter CritterCl
+	#endif
+#endif
+
+// Паттерн клиентских функций
+funcdef void ClientScriptFunction(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt);
+
+// Универсальное хранилище аргументов <int|int[]|Critter|CritterCl|Item|ItemCl|string>
+shared class ArgumentValue
+{
+	int Type;
+	protected any _storage;
+
+	ArgumentValue@ opAssign(string& value){ // SET ARG_STRING
+		this._storage.store(value);
+		return this;
+	}
+	ArgumentValue@ opAssign(int& value){ // SET ARG_INT|ARG_STRING|ARG_CRITTER|ARG_ITEM|ARG_CUSTOM
+		this._storage.store(value);
+		return this;
+	}
+	ArgumentValue@ opAssign(uint& value){ // SET ARG_INT|ARG_STRING|ARG_CRITTER|ARG_ITEM|ARG_CUSTOM
+		this._storage.store(value);
+		return this;
+	}
+	ArgumentValue@ opAssign(int[]& values){ // SET ARG_INTS|ARG_CRITTERS|ARG_ITEMS
+		this._storage.store(values);
+		return this;	
+	}
+	ArgumentValue@ opAssign(uint16[]& values){ // SET ARG_HEX|ARG_PATH
+		this._storage.store(values);
+		return this;		
+	}
+	string opImplConv(){ // SET ARG_STRING
+		string value;
+		this._storage.retrieve(value);
+		return value;
+	}
+	int opImplConv() { // GET ARG_INT|ARG_STRING|ARG_CRITTER|ARG_ITEM|ARG_CUSTOM
+		int value;
+		this._storage.retrieve(value);
+		return value;
+	}
+	int[] opImplConv() { // GET ARG_INTS|ARG_CRITTERS|ARG_ITEMS
+		int[] value;
+		this._storage.retrieve(value);
+		return value;
+	}
+	uint16[] opImplConv() { // GET ARG_HEX|ARG_PATH
+		uint16[] value;
+		this._storage.retrieve(value);
+		return value;
+	}
+	Critter@ opImplConv() { // GET ARG_CRITTER
+		int value;
+		this._storage.retrieve(value);
+		return GetCritter(value);
+	}
+	Item@ opImplConv() { // GET ARG_ITEM
+		int value;
+		this._storage.retrieve(value);
+		return GetItem(value);	
+	}
+	Critter@[] opImplConv() { // GET ARG_CRITTERS
+		Critter@[] result;
+		int[] value;
+		this._storage.retrieve(value);
+		for(uint pos = 0, len = value.length; pos < len; pos++) 
+			result.insertLast(GetCritter(value[pos]));
+		return result;
+	}
+	Item@[] opImplConv() { // GET ARG_ITEMS
+		Item@[] result;
+		int[] value;
+		this._storage.retrieve(value);
+		for(uint pos = 0, len = value.length; pos < len; pos++) 
+			result.insertLast(GetItem(value[pos]));
+		return result;
+	}
+}
+
+// Сериализатор аргументов
+shared class ArgumentSerializer{
+	protected ArgumentValue@[] Arg;
+	protected int[] ArgTypes;
+	ArgumentSerializer(){
+		return;
+	}
+	ArgumentSerializer@ Add(int argType, ArgumentValue@ value){
+		value.Type = argType;
+		this.ArgTypes.insertLast(argType);
+		this.Arg.insertLast(value);
+		return this;
+	}
+	ArgumentSerializer@ Add(int argType, int& value){
+		ArgumentValue container = value;
+		return this.Add(argType,container);
+	}
+	ArgumentSerializer@ Add(int argType, int[]& value){
+		ArgumentValue container = value;
+		return this.Add(argType,container);
+	}
+	ArgumentSerializer@ Add(int argType, uint16[]& value){
+		ArgumentValue container = value;
+		return this.Add(argType,container);
+	}
+	ArgumentSerializer@ Add(int argType, string& value){
+		ArgumentValue container = value;
+		return this.Add(argType,container);
+	}
+	ArgumentSerializer@ Serialize(string& argString, int[]& argInt){
+		for(uint pos = 0, length = this.ArgTypes.length; pos < length; pos++){
+			// Кадр начинается с типа аргумента
+			argInt.insertLast(this.ArgTypes[pos]);
+			switch(this.ArgTypes[pos]){
+				// Следующие типы аргументов занимают 1 <int> и копируются "как есть"
+				case ARG_INT:
+				case ARG_CUSTOM:
+				case ARG_ITEM: 
+				case ARG_CRITTER: {
+					int value = this.Arg[pos];
+					argInt.insertLast(value);
+				} break;
+
+				// Для строк - в argInt хранится длина строки, в argString - сама строка
+				case ARG_STRING: {
+					string value = this.Arg[pos];
+					argString += value;
+					argInt.insertLast(value.length());
+				} break;
+
+				// <int>-массивы - сначала идет длина массива, после - перечень элементов
+				case ARG_INTS:
+				case ARG_CRITTERS:
+				case ARG_ITEMS: {
+					int[] value = this.Arg[pos];
+					argInt.insertLast(value.length);
+					for(uint i = 0, l = value.length; i < l; i++){
+						argInt.insertLast(value[i]);
+					}
+				} break;
+
+				// Координаты - два гекса подряд		
+				case ARG_HEX: {
+					uint16[] value = this.Arg[pos];
+					argInt.insertLast(int(value[0]));
+					argInt.insertLast(int(value[1]));
+				} break;
+
+				// Путь - две координаты подряд
+				case ARG_PATH: {
+					uint16[] value = this.Arg[pos];
+					argInt.insertLast(int(value[0]));
+					argInt.insertLast(int(value[1]));
+					argInt.insertLast(int(value[2]));
+					argInt.insertLast(int(value[3]));
+				} break;
+
+				// ARG_VOID, отсутствующий аргумент (ничего не добавляется)
+				default: continue;
+			}
+		}
+		return this;
+	}
+}
+
+// Парсер сериализированных <string & int[]> аргументов
+shared class ArgumentParser
+{
+	protected ArgumentValue[] Arg;
+	protected int[] ArgTypes;
+	// Соответствует ли аргумент <argPos> типу <argType>
+	bool MatchType(uint argPos, int argType){
+		if(this.ArgTypes.length <= argPos) return argType == ARG_VOID; 
+		return this.ArgTypes[argPos] == argType;
+	}
+	// Массовый чек на соответствие паттерну типов (до 10 аргументов)
+	bool MatchPattern(
+		int arg0Type = ARG_VOID,
+		int arg1Type = ARG_VOID,
+		int arg2Type = ARG_VOID,
+		int arg3Type = ARG_VOID,
+		int arg4Type = ARG_VOID,
+		int arg5Type = ARG_VOID,
+		int arg6Type = ARG_VOID,
+		int arg7Type = ARG_VOID,
+		int arg8Type = ARG_VOID,
+		int arg9Type = ARG_VOID
+	){
+		return this.MatchType(0,arg0Type)
+			&& this.MatchType(1,arg1Type)
+			&& this.MatchType(2,arg2Type)
+			&& this.MatchType(3,arg3Type)
+			&& this.MatchType(4,arg4Type)
+			&& this.MatchType(5,arg5Type)
+			&& this.MatchType(6,arg6Type)
+			&& this.MatchType(7,arg7Type)
+			&& this.MatchType(8,arg8Type)
+			&& this.MatchType(9,arg9Type);
+	}
+	ArgumentParser(string argString, int[]@ argInt){
+		int sPos = 0, iPos = 0, aPos = 0; // Текущая позиция в argString, argInt и Arg|ArgTypes;
+		if(argInt.length < 2) return; // Массив аргументов слишком мал
+		if(argInt[iPos++] != 777) return; // Первое значение массива должно быть 777
+		// Обрабатываем каждое значение массива
+		for( uint pos = 0, length = argInt.length; pos < length; pos++ ){
+			// Первый элемент кадра - тип аргумента
+			this.ArgTypes.resize(aPos + 1); 
+			this.Arg.resize(aPos + 1);
+			this.Arg[aPos].Type = this.ArgTypes[aPos] = argInt[iPos++]; 
+			// Задаём значение в соответствии с типом
+			switch( ArgTypes[aPos] ){
+				// Следующие типы аргументов занимают 1 <int> и копируются "как есть"
+				case ARG_INT:
+				case ARG_CUSTOM:
+				case ARG_ITEM: 
+				case ARG_CRITTER: {
+					this.Arg[aPos++] = argInt[iPos++];
+				} break;
+
+				// Для строк - из argInt берется длина строки, из argString - сама строка
+				case ARG_STRING: {
+					int strLength = argInt[iPos++];
+					this.Arg[aPos++] = substring(argString, sPos, strLength); 
+					sPos += strLength;
+				} break;
+
+				// <int>-массивы - сначала идет длина массива, после - перечень элементов
+				case ARG_INTS:
+				case ARG_CRITTERS:
+				case ARG_ITEMS: {
+					int intLength = argInt[iPos++]; 
+					int[] arr;
+					for(int endPos = iPos+intLength; iPos < endPos; iPos++){
+						arr.insertLast( argInt[iPos] );
+					}
+					this.Arg[aPos++] = arr;
+				} break;
+
+				// Координаты - два гекса подряд		
+				case ARG_HEX: {
+					uint16[] arr = { uint16(argInt[iPos++]), uint16(argInt[iPos++]) };
+					this.Arg[pos] = arr;
+				} break;
+
+				// Путь - две координаты подряд
+				case ARG_PATH: {
+					uint16[] arr = { uint16(argInt[iPos++]), uint16(argInt[iPos++]), uint16(argInt[iPos++]), uint16(argInt[iPos++]) };
+					this.Arg[pos] = arr;
+				} break;
+
+				// ARG_VOID, отсутствующий аргумент
+				default: {
+					int temp = 0;
+					this.Arg[aPos++] = temp;
+				} continue; 
+			}
+		}
+	}
+}
