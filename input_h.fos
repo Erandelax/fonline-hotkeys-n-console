@@ -41,7 +41,7 @@ funcdef void ClientScriptFunction(int arg0, int arg1, int arg2, string@ argStrin
 // Универсальное хранилище аргументов <int|int[]|Critter|CritterCl|Item|ItemCl|string>
 shared class ArgumentValue
 {
-	int Type;
+	int Type = ARG_VOID;
 	protected any _storage;
 
 	ArgumentValue@ opAssign(string& value){ // SET ARG_STRING
