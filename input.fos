@@ -1,0 +1,564 @@
+#include "_client_defines.fos"
+#include "_msgstr.fos"
+#include "gui_h.fos"
+
+#define __INPUT_MODULE__
+#include "input_h.fos"
+
+import void TryExit() from "gui_screens";
+import void NextCursor() from "gui_screens";
+import void ThrowingKeyDown( uint8 key ) from "throwing";
+import void ThrowingKeyUp( uint8 key ) from "throwing";
+import void ThrowingInputLost() from "throwing";
+import bool ThrowingMouseDown( int click ) from "throwing";
+string KeyPressed; // String[keyCode] = {\xFFFF == NOT PRESSED || \x0001 == CLICK || \x0002 == HOLD}
+
+
+// Export
+bool IsKeyPressed(int key) { return KeyPressed[key] != "\xFFFF"; }
+bool IsKeyHold(int key){ return KeyPressed[key] == "\x0002"; }
+bool IsMousePressed(int key){ return IsKeyPressed(256 + key); }
+bool IsMouseHold(int key){ return IsKeyHold(256 + key); }
+bool IsCtrlDown(){ return IsKeyPressed(DIK_RCONTROL) || IsKeyPressed(DIK_LCONTROL); }
+bool IsAltDown(){ return IsKeyPressed(DIK_LMENU) || IsKeyPressed(DIK_RMENU); }
+bool IsShiftDown(){ return IsKeyPressed(DIK_LSHIFT) || IsKeyPressed(DIK_RSHIFT); }
+void KeyPress(int key){ 
+    KeyPressed[key] = (KeyPressed[key] != "\xFFFF") ? "\x0002" : "\x0001"; 
+}
+void MousePress(int key){ KeyPress(256 + key); }
+void KeyUnpress(int key){ KeyPressed[key] = "\xFFFF"; }
+void MouseUnpress(int key){ KeyUnpress(256 + key); }
+void KeysReset(string& keyPressed){
+    string hash;
+    for(uint pos = 0; pos < 300; pos++) hash += "\xFFFF";
+    KeyPressed = hash;
+}
+// Export to gui.fos
+string @ GetKeyPressed() { return KeyPressed; }
+string @ GetMousePressed() { return KeyPressed; }
+
+class ScriptInitializer
+{
+    ScriptInitializer() {
+        KeysReset(KeyPressed);
+    }
+}
+ScriptInitializer _ScriptInitializer;
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Global functions
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Mouse behaviours. Button states look in _client_defines.fos, Mouse buttons.
+// Return true to disable engine events.
+void mouse_down( int button ) { // Engine callback
+    MousePress(button);
+    GUI_EngineCallback_MouseDown( button );
+}
+
+void mouse_up( int button ) { // Engine callback
+    MouseUnpress(button);
+    GUI_EngineCallback_MouseUp( button );
+}
+
+void mouse_move() { // Engine callback
+    GUI_EngineCallback_MouseMove();
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Keyboard behaviours. Key codes look in _client_defines.fos DirectInput keyboard scan codes.
+// Return true to disable engine events.
+void key_down( uint8 key, string@ text ) { // Engine callback
+    KeyPress(key);
+    // GUI handler
+    GUI_EngineCallback_KeyDown( key, text );
+}
+
+void key_up( uint8 key ) { // Engine callback
+    KeyUnpress(key);
+
+    // GUI handler
+    GUI_EngineCallback_KeyUp( key );
+
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Called on mouse/keyboard input lost (alt-tab, minimize, lost focus).
+void input_lost() { // Engine callback
+    // Reset states
+    KeysReset(KeyPressed);
+
+    // GUI handler
+    GUI_EngineCallback_InputLost();
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Should be called in loop to handle hold keys
+void loop() {
+
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Hotkeys & chat commands handler
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+dictionary HotkeyCommands; // Correspondence <Hotkey> : <Command tag>
+dictionary MessageCommands; // Correspondence <Hotkey> : <Command arguments>
+dictionary AllowedCommands; // Correspondence <Command tag> : <Handler function>
+dictionary AllowedArguments; // Correspondence <Command tag> : <Allowed command arguments>
+dictionary CustomCommandArguments; // Correspondence <Command tag : Custom tag> : <int>
+
+// Registering client script as a command [EXPORT]
+void RegisterCommand(string tag,ClientScriptFunction@ scriptName,int[] allowedArguments){ 
+    @AllowedCommands[tag] = scriptName;
+    AllowedArguments[tag] = allowedArguments;
+    Log("Registered command <"+tag+">");
+}
+void RegisterCommand( 
+    string tag,
+    ClientScriptFunction@ scriptName,
+    int arg0 = ARG_VOID,
+    int arg1 = ARG_VOID,
+    int arg2 = ARG_VOID,
+    int arg3 = ARG_VOID,
+    int arg4 = ARG_VOID,
+    int arg5 = ARG_VOID,
+    int arg6 = ARG_VOID,
+    int arg7 = ARG_VOID,
+    int arg8 = ARG_VOID,
+    int arg9 = ARG_VOID
+){
+    int[] allowedArguments = {arg0,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9};
+    RegisterCommand(tag,scriptName,allowedArguments);
+}
+
+// Registering server script as a command [EXPORT]
+void RegisterCommand(string tag,string serverScriptName,int[] allowedArguments){
+    AllowedCommands[tag] = serverScriptName;
+    AllowedCommands[tag] = allowedArguments;
+    Log("Registered command <"+tag+">");
+}
+void RegisterCommand(
+    string tag,
+    string serverScriptName,
+    int arg0 = ARG_VOID,
+    int arg1 = ARG_VOID,
+    int arg2 = ARG_VOID,
+    int arg3 = ARG_VOID,
+    int arg4 = ARG_VOID,
+    int arg5 = ARG_VOID,
+    int arg6 = ARG_VOID,
+    int arg7 = ARG_VOID,
+    int arg8 = ARG_VOID,
+    int arg9 = ARG_VOID
+){
+    int[] allowedArguments = {arg0,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9};
+    RegisterCommand(tag,serverScriptName,allowedArguments);
+}
+
+// Registering command as hotkey <innerTag> <tag> <[ Arg0:[Type1||Type2], Arg1:[Type1||Type2] ]>
+/*void AddHotkeyCommand(string keyPressed, string tag, string@[][] arguments){
+    HotkeyCommands[keyPressed] = Command(tag,arguments);
+}
+void AddMessageCommand(string messageTag, string tag, string@[][] arguments){
+    MessageCommands[messageTag] = Command(tag,arguments);
+}*/
+
+// Used to validate allowed arguments to argument values type (see <Input.txt>)
+dictionary ArgumentHandlerTypes = {
+    {"VOID", ARG_VOID},                     // "VOID"
+    {"NULL", ARG_VOID},                     // "NULL" 
+    {"CUSTOM", ARG_CUSTOM},                 // "CUSTOM" Custom type (see <RegisterArgument> ~ <int>)
+    {"SELF", ARG_CRITTER},                  // "SELF" Chosen.Id
+    {"ITEM:RADIUS", ARG_ITEMS},             // "SELF:ITEM:RADIUS=12" - items in radius 12 hex around SELF
+    {"ITEM:FOV", ARG_ITEMS},                // "SELF:ITEM:FOV=60" - visible items in cone of 60* degree in direction of SELF.FOV 
+    {"CRITTER:RADIUS", ARG_CRITTERS},       // "SELF:CRITTER:RADIUS=12" - critters in radius of 12 hex around SELF
+    {"CRITTER:FOV",ARG_CRITTERS},           // "SELF:CRITTER:FOV=60" - visible critters in cone of 60* degree from SELF.FOV
+    {"GROUP", ARG_CRITTERS},                // "GROUP" - critter current group, "GROUP=2" - controlled subgroup #2
+    {"TARGET", ARG_HEX},                    // "TARGET" - hex under cursor
+    {"TARGET:ITEM", ARG_ITEM},              // "ITEM" - item under cursor
+    {"TARGET:ITEM:RADIUS", ARG_ITEMS},      // "TARGET:ITEM:RADIUS=12" - items in radius of 12 hex around cursor
+    {"TARGET:ITEM:FOV",ARG_ITEMS},          // "TARGET:ITEM:FOV=60" - visible items in cone of 30* degree in direction SELF=>TARGET
+    {"TARGET:CRITTER", ARG_CRITTER},        // "TARGET:CRITTER" - critter under cursor
+    {"TARGET:CRITTER:RADIUS", ARG_CRITTERS},// "TARGET:CRITTER:RADIUS=12" - critters in radius of 12 hex around cursor
+    {"TARGET:CRITTER:FOV", ARG_CRITTERS},   // "TARGET:CRITTER:FOV=60" - critters in 60* degree cone in direction SELF=>TARGET
+    {"QUICK", ARG_ITEM},                    // "QUICK:100" - item from quickbar slot #100
+    {"SLOT:HAND1", ARG_ITEM},               // "SLOT:HAND1" - item from SELF.HAND1 slot
+    {"SLOT:HAND2", ARG_ITEM},               // "SLOT:HAND2" - item from SELF.HAND2 slot
+    {"SLOT:ARMOR", ARG_ITEM},               // "SLOT:ARMOR" - item from SELF.ARMOR slot
+    {"SLOT:INV",ARG_ITEMS},                 // "SLOT:INV" - items in self.INV slot
+    {"SLOT:GROUND",ARG_ITEMS},              // "SLOT:GROUND"  - items in self.GROUND slot
+    {"NUMBER", ARG_INT},                    // "NUMBER" - prompt for custom <int> or "NUMBER=12"|"12" - custom number
+    {"WORD", ARG_STRING},                   // "WORD" - prompt for custom string with no spaces or "WORD=Hello"|"Hello" - custom string
+    {"PHRASE", ARG_STRING}                  // "PHRASE" - prompt for custom phrase (in chat commands contains all data till input end)
+};
+
+// Transforms <Commands.fos> argument syntax (aka TY:PE=VALUE) into proper ArgumentHandler class
+ArgumentHandler@ ParseArgumentHandlers(string tag, string macro){
+    string@[] parts = split(macro,"=");
+    string name = parts[0]; parts.removeAt(0); // pop first value into name
+    string value = join(parts,"="); // join others since they may contain = inside
+    
+    if( name == "VOID" or name == "NULL" ) { // see handler description at <ArgumentHandlerTypes>
+        return null;
+    } 
+    else if( name == "CUSTOM" && CustomCommandArguments.exists(tag+":"+value) ){
+        int number = int(CustomCommandArguments[tag+":"+value]);
+        return ArgumentHandler_CUSTOM(number);
+    } 
+    else if( name == "SELF" ) {
+        return ArgumentHandler_SELF();
+    }
+    else if( name == "ITEM:RADIUS" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_ITEM_RADIUS(number);
+        return null;
+    }
+    else if( name == "ITEM:FOV" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_ITEM_FOV(number);
+        return null;
+    }
+    else if( name == "CRITTER:RADIUS" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_CRITTER_RADIUS(number);
+        return null;
+    }
+    else if( name == "CRITTER:FOV" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return  ArgumentHandler_CRITTER_FOV(number);
+        return null;
+    }
+    else if( name == "GROUP" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_GROUP(number);
+        return ArgumentHandler_GROUP();
+    }
+    else if( name == "TARGET" ) {
+        return ArgumentHandler_TARGET();
+    }
+    else if( name == "TARGET:CRITTER" ) {
+        return ArgumentHandler_TARGET_CRITTER();
+    }
+    else if( name == "TARGET:CRITTER:RADIUS" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_TARGET_CRITTER_RADIUS(number);
+        return null;
+    }
+    else if( name == "TARGET:CRITTER:FOV" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return  ArgumentHandler_TARGET_CRITTER_FOV(number);   
+        return null;
+    }
+    else if( name == "TARGET:ITEM" ) {
+        return ArgumentHandler_TARGET_ITEM();
+    }
+    else if( name == "TARGET:ITEM:RADIUS" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return  ArgumentHandler_TARGET_ITEM_RADIUS(number);
+        return null;
+    }
+    else if( name == "TARGET:ITEM:FOV" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_TARGET_ITEM_FOV(number);   
+        return null;
+    }
+    else if( name == "QUICK" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_QUICK(number);   
+        return null;
+    }
+    else if( name == "SLOT:HAND1" ) {
+        return ArgumentHandler_SLOT(SLOT_HAND1);   
+    }
+    else if( name == "SLOT:HAND2" ) {
+        return ArgumentHandler_SLOT(SLOT_HAND2);   
+    }
+    else if( name == "SLOT:ARMOR" ) {
+        return ArgumentHandler_SLOT(SLOT_ARMOR);   
+    }
+    else if( name == "SLOT:INV" ) {
+        return ArgumentHandler_SLOT(SLOT_INV);   
+    }
+    else if( name == "SLOT:GROUND" ) {
+        return ArgumentHandler_SLOT(SLOT_GROUND);   
+    }
+    else if( name == "NUMBER" ) {
+        int number = 0;
+        if( StrToInt(value,number) ) return ArgumentHandler_NUMBER(number);
+        return null;
+    }
+    else if( name == "WORD" || name == "PHRASE" ) {
+        return ArgumentHandler_STRING(value);
+    } 
+    // Value was typed directly (type unknown) - ARG_CUSTOM|ARG_INT|ARG_STRING
+    int number = 0;
+    if( CustomCommandArguments.exists(tag+":"+macro) ){ // Attempt to find ARG_CUSTOM
+        if( StrToInt(value,number) ) return ArgumentHandler_CUSTOM(number);
+        return null;
+    } 
+    else if( StrToInt(macro,number) ) { // Attempt to get generic ARG_INT
+        return ArgumentHandler_NUMBER(number);
+    }
+    else if( macro.length() > 0 ){ // Attempt to find ARG_STRING
+        return ArgumentHandler_STRING(macro);
+    }
+    return null; // ARG_VOID
+} 
+// All the handlers mentioned above
+interface ArgumentHandler{ ArgumentValue@ Run(); }
+
+class ArgumentHandler_CUSTOM : ArgumentHandler
+{
+    protected int value = 0;
+    ArgumentHandler_CUSTOM(int value){ this.value = value; }
+
+    ArgumentValue@ Run(){
+        ArgumentValue value = this.value;
+        return value;
+    }
+}
+
+class ArgumentHandler_SELF : ArgumentHandler 
+{
+    ArgumentValue@ Run(){
+        CritterCl@ cr = GetChosen();
+        if(cr is null) return null;
+        ArgumentValue value = cr.Id;
+        return value;
+    }
+}
+
+class ArgumentHandler_ITEM_RADIUS : ArgumentHandler 
+{
+    int radius = 10;
+    ArgumentHandler_ITEM_RADIUS(int radius){ this.radius = radius; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_ITEM_FOV : ArgumentHandler 
+{
+    int angle = 60;
+    ArgumentHandler_ITEM_FOV(int angle) { this.angle = angle; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_CRITTER_RADIUS : ArgumentHandler 
+{
+    int radius = 0;
+    ArgumentHandler_CRITTER_RADIUS(int radius){ this.radius = radius; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_CRITTER_FOV : ArgumentHandler 
+{
+    int angle = 60;
+    ArgumentHandler_CRITTER_FOV(int angle) { this.angle = angle; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_GROUP : ArgumentHandler 
+{
+    int id = -1;
+    ArgumentHandler_GROUP(){return;}
+    ArgumentHandler_GROUP(int id){ this.id = id; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_TARGET : ArgumentHandler 
+{
+    ArgumentValue@ Run(){ 
+        uint16 x = 0, y = 0;
+        if( GetMonitorHex( __MouseX, __MouseY, x, y ) ){
+            uint16[] coords = { x, y };
+            ArgumentValue value = coords;
+            return value;
+        }
+        return null;
+    }
+}
+
+class ArgumentHandler_TARGET_CRITTER : ArgumentHandler 
+{
+    ArgumentValue@ Run(){ 
+        CritterCl@ cr =  GetMonitorCritter( __MouseX, __MouseY );
+        if(cr is null) return null;
+        ArgumentValue value = cr.Id;
+        return value;
+    }
+}
+
+class ArgumentHandler_TARGET_CRITTER_RADIUS : ArgumentHandler 
+{
+    int radius = 10;
+    ArgumentHandler_TARGET_CRITTER_RADIUS(int radius){ this.radius = radius; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_TARGET_CRITTER_FOV : ArgumentHandler 
+{
+    int angle = 60;
+    ArgumentHandler_TARGET_CRITTER_FOV(int angle){
+        this.angle = angle;
+    }
+
+    ArgumentValue@ Run(){
+        return null;
+    }
+}
+
+class ArgumentHandler_TARGET_ITEM : ArgumentHandler 
+{
+    ArgumentValue@ Run(){ 
+        ItemCl@ cr =  GetMonitorItem( __MouseX, __MouseY );
+        if(cr is null) return null;
+        ArgumentValue value = cr.Id;
+        return value;
+    }
+}
+
+class ArgumentHandler_TARGET_ITEM_RADIUS : ArgumentHandler 
+{
+    int radius = 10;
+    ArgumentHandler_TARGET_ITEM_RADIUS(int radius){ this.radius = radius; }
+
+    ArgumentValue@ Run(){
+        return null; // @@todo
+    }
+}
+
+class ArgumentHandler_TARGET_ITEM_FOV : ArgumentHandler 
+{
+    int angle = 60;
+    ArgumentHandler_TARGET_ITEM_FOV(int angle){
+        this.angle = angle;
+    }
+
+    ArgumentValue@ Run(){
+        return null;
+    }
+}
+
+import ItemCl@ quickItem(uint quick_slot) from "client_quickbar";
+class ArgumentHandler_QUICK : ArgumentHandler 
+{
+    int SlotId = 0;
+    ArgumentHandler_QUICK(int slotId){
+        this.SlotId = slotId;
+    }
+
+    ArgumentValue@ Run(){
+        ItemCl@ item = quickItem(this.SlotId);
+        if(item is null) return null;
+        ArgumentValue value = item.Id;
+        return value;
+    }
+}
+
+class ArgumentHandler_SLOT : ArgumentHandler 
+{
+    int SlotId = 0;
+    ArgumentHandler_SLOT(int slotId){
+        this.SlotId = slotId;
+    }
+
+    ArgumentValue@ Run(){
+        CritterCl@ cr = GetChosen();
+        if(cr is null) return null;
+        ItemCl@ item = cr.GetItem(0,this.SlotId);
+        if(item is null) return null;
+        ArgumentValue value = item.Id;
+        return value;
+    }
+}
+
+class ArgumentHandler_NUMBER : ArgumentHandler 
+{
+    int Preset = 0;
+    ArgumentHandler_NUMBER(int preset = 0){ this.Preset = preset; }
+
+    ArgumentValue@ Run(){
+        ArgumentValue value = this.Preset;
+        return value;
+    }
+}
+
+class ArgumentHandler_STRING : ArgumentHandler 
+{
+    string value = "";
+    ArgumentHandler_STRING(string value){ this.value = value; }
+
+    ArgumentValue@ Run(){
+        ArgumentValue value = this.value;
+        return value;
+    }
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Соответствие string KEYCODE => int KEYCODE
+dictionary KeyCode = { 
+    // Mouse buttons (inverted to differ from the keyboard subset)
+    {"MLB",-MOUSE_BUTTON_LEFT},{"MRB",-MOUSE_BUTTON_RIGHT},
+    {"MWU",-MOUSE_BUTTON_WHEEL_UP},{"MWD",-MOUSE_BUTTON_WHEEL_DOWN},
+    {"MMB",-MOUSE_BUTTON_MIDDLE},{"M0B",-MOUSE_BUTTON_EXT0},
+    {"M1B",-MOUSE_BUTTON_EXT1},{"M2B",-MOUSE_BUTTON_EXT2},
+    {"M3B",-MOUSE_BUTTON_EXT3},{"M4B",-MOUSE_BUTTON_EXT4},
+    // Numbers
+    {"1",DIK_1},{"2",DIK_2},{"3",DIK_3},{"4",DIK_4},{"5",DIK_5},
+    {"6",DIK_6},{"7",DIK_7},{"8",DIK_8},{"9",DIK_9},{"0",DIK_0},
+    {"NUMPAD1",DIK_NUMPAD1},{"NUMPAD2",DIK_NUMPAD2},
+    {"NUMPAD3",DIK_NUMPAD3},{"NUMPAD4",DIK_NUMPAD4},
+    {"NUMPAD5",DIK_NUMPAD5},{"NUMPAD6",DIK_NUMPAD6},
+    {"NUMPAD7",DIK_NUMPAD7},{"NUMPAD8",DIK_NUMPAD8},
+    {"NUMPAD9",DIK_NUMPAD9},{"NUMPAD0",DIK_NUMPAD0},
+    // Letters
+    {"Q",DIK_Q},{"W",DIK_W},{"E",DIK_E},{"R",DIK_R},{"T",DIK_T},
+    {"Y",DIK_Y},{"U",DIK_U},{"I",DIK_I},{"O",DIK_O},{"P",DIK_P},
+    {"A",DIK_A},{"S",DIK_S},{"D",DIK_D},{"F",DIK_F},{"G",DIK_G},
+    {"H",DIK_H},{"J",DIK_J},{"K",DIK_K},{"L",DIK_L},{"Z",DIK_Z},
+    {"X",DIK_X},{"C",DIK_C},{"V",DIK_V},{"B",DIK_B},{"N",DIK_N},
+    {"M",DIK_M},
+    // Symbols
+    {"SPACE",DIK_SPACE},{"MINUS",DIK_MINUS},
+    {"EQUALS",DIK_EQUALS},{"LBRACKET",DIK_LBRACKET},
+    {"RBRACKET",DIK_RBRACKET},{"SEMICOLON",DIK_SEMICOLON},
+    {"APOSTROPHE",DIK_APOSTROPHE},{"BACKSLASH",DIK_BACKSLASH},
+    {"COMMA",DIK_COMMA},{"PERIOD",DIK_PERIOD},{"MULTIPLY",DIK_MULTIPLY},
+    {"ADD",DIK_ADD},{"SUBTRACT",DIK_SUBTRACT},{"GRAVE",DIK_GRAVE},
+    {"SLASH",DIK_SLASH},{"DECIMAL",DIK_DECIMAL},{"DIVIDE",DIK_DIVIDE},
+    // Arrows
+    {"UP",DIK_UP},{"LEFT",DIK_LEFT},{"RIGHT",DIK_RIGHT},{"DOWN",DIK_DOWN},
+    // F# keys
+    {"F1",DIK_F1},{"F2",DIK_F2},{"F3",DIK_F3},{"F4",DIK_F4},
+    {"F5",DIK_F5},{"F6",DIK_F6},{"F7",DIK_F7},{"F8",DIK_F8},
+    {"F9",DIK_F9},{"F10",DIK_F10},{"F11",DIK_F11},{"F12",DIK_F12},
+    // Other controls
+    {"NUMLOCK",DIK_NUMLOCK},{"NUMPADENTER",DIK_NUMPADENTER},
+    {"ESCAPE",DIK_ESCAPE},{"BACK",DIK_BACK},{"TAB",DIK_TAB},
+    {"RETURN",DIK_RETURN},{"LCONTROL",DIK_LCONTROL},
+    {"LSHIFT",DIK_LSHIFT},{"RSHIFT",DIK_RSHIFT},{"LMENU",DIK_LMENU},
+    {"CAPITAL",DIK_CAPITAL},{"SCROLL",DIK_SCROLL},{"RCONTROL",DIK_RCONTROL},
+    {"SYSRQ",DIK_SYSRQ},{"RMENU",DIK_RMENU},{"PAUSE",DIK_PAUSE},
+    {"HOME",DIK_HOME},{"PRIOR",DIK_PRIOR},{"END",DIK_END},
+    {"NEXT",DIK_NEXT},{"INSERT",DIK_INSERT},{"DELETE",DIK_DELETE},
+    {"LWIN",DIK_LWIN},{"RWIN",DIK_RWIN} 
+};
