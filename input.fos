@@ -13,30 +13,123 @@ import void ThrowingKeyUp( uint8 key ) from "throwing";
 import void ThrowingInputLost() from "throwing";
 import bool ThrowingMouseDown( int click ) from "throwing";
 string KeyPressed; // String[keyCode] = {\xFFFF == NOT PRESSED || \x0001 == CLICK || \x0002 == HOLD}
+dictionary HotkeyCommands; // Correspondence <Hotkey> : <Command tag>
+dictionary MessageCommands; // Correspondence <Hotkey> : <Command arguments>
+dictionary AvailableCommands; // Correspondence <Command tag> : <Handler function>
+dictionary CustomCommandArguments; // Correspondence <Command tag : Custom tag> : <int>
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Соответствие string KEYCODE => int KEYCODE
+dictionary KeyCode = { 
+    // Mouse buttons (inverted to differ from the keyboard subset)
+    {"MLB",-MOUSE_BUTTON_LEFT},{"MRB",-MOUSE_BUTTON_RIGHT},
+    {"MWU",-MOUSE_BUTTON_WHEEL_UP},{"MWD",-MOUSE_BUTTON_WHEEL_DOWN},
+    {"MMB",-MOUSE_BUTTON_MIDDLE},{"M0B",-MOUSE_BUTTON_EXT0},
+    {"M1B",-MOUSE_BUTTON_EXT1},{"M2B",-MOUSE_BUTTON_EXT2},
+    {"M3B",-MOUSE_BUTTON_EXT3},{"M4B",-MOUSE_BUTTON_EXT4},
+    // Numbers
+    {"1",DIK_1},{"2",DIK_2},{"3",DIK_3},{"4",DIK_4},{"5",DIK_5},
+    {"6",DIK_6},{"7",DIK_7},{"8",DIK_8},{"9",DIK_9},{"0",DIK_0},
+    {"NUMPAD1",DIK_NUMPAD1},{"NUMPAD2",DIK_NUMPAD2},
+    {"NUMPAD3",DIK_NUMPAD3},{"NUMPAD4",DIK_NUMPAD4},
+    {"NUMPAD5",DIK_NUMPAD5},{"NUMPAD6",DIK_NUMPAD6},
+    {"NUMPAD7",DIK_NUMPAD7},{"NUMPAD8",DIK_NUMPAD8},
+    {"NUMPAD9",DIK_NUMPAD9},{"NUMPAD0",DIK_NUMPAD0},
+    // Letters
+    {"Q",DIK_Q},{"W",DIK_W},{"E",DIK_E},{"R",DIK_R},{"T",DIK_T},
+    {"Y",DIK_Y},{"U",DIK_U},{"I",DIK_I},{"O",DIK_O},{"P",DIK_P},
+    {"A",DIK_A},{"S",DIK_S},{"D",DIK_D},{"F",DIK_F},{"G",DIK_G},
+    {"H",DIK_H},{"J",DIK_J},{"K",DIK_K},{"L",DIK_L},{"Z",DIK_Z},
+    {"X",DIK_X},{"C",DIK_C},{"V",DIK_V},{"B",DIK_B},{"N",DIK_N},
+    {"M",DIK_M},
+    // Symbols
+    {"SPACE",DIK_SPACE},{"MINUS",DIK_MINUS},
+    {"EQUALS",DIK_EQUALS},{"LBRACKET",DIK_LBRACKET},
+    {"RBRACKET",DIK_RBRACKET},{"SEMICOLON",DIK_SEMICOLON},
+    {"APOSTROPHE",DIK_APOSTROPHE},{"BACKSLASH",DIK_BACKSLASH},
+    {"COMMA",DIK_COMMA},{"PERIOD",DIK_PERIOD},{"MULTIPLY",DIK_MULTIPLY},
+    {"ADD",DIK_ADD},{"SUBTRACT",DIK_SUBTRACT},{"GRAVE",DIK_GRAVE},
+    {"SLASH",DIK_SLASH},{"DECIMAL",DIK_DECIMAL},{"DIVIDE",DIK_DIVIDE},
+    // Arrows
+    {"UP",DIK_UP},{"LEFT",DIK_LEFT},{"RIGHT",DIK_RIGHT},{"DOWN",DIK_DOWN},
+    // F# keys
+    {"F1",DIK_F1},{"F2",DIK_F2},{"F3",DIK_F3},{"F4",DIK_F4},
+    {"F5",DIK_F5},{"F6",DIK_F6},{"F7",DIK_F7},{"F8",DIK_F8},
+    {"F9",DIK_F9},{"F10",DIK_F10},{"F11",DIK_F11},{"F12",DIK_F12},
+    // Other controls
+    {"NUMLOCK",DIK_NUMLOCK},{"NUMPADENTER",DIK_NUMPADENTER},
+    {"ESCAPE",DIK_ESCAPE},{"BACK",DIK_BACK},{"TAB",DIK_TAB},
+    {"RETURN",DIK_RETURN},{"LCONTROL",DIK_LCONTROL},
+    {"LSHIFT",DIK_LSHIFT},{"RSHIFT",DIK_RSHIFT},{"LMENU",DIK_LMENU},
+    {"CAPITAL",DIK_CAPITAL},{"SCROLL",DIK_SCROLL},{"RCONTROL",DIK_RCONTROL},
+    {"SYSRQ",DIK_SYSRQ},{"RMENU",DIK_RMENU},{"PAUSE",DIK_PAUSE},
+    {"HOME",DIK_HOME},{"PRIOR",DIK_PRIOR},{"END",DIK_END},
+    {"NEXT",DIK_NEXT},{"INSERT",DIK_INSERT},{"DELETE",DIK_DELETE},
+    {"LWIN",DIK_LWIN},{"RWIN",DIK_RWIN} 
+};
+string[] ReKeyCode;
+// //////////////////////////////////////////////////////////////////////////////////////////////////
 
+#define KEY_STATE_CLEAR     ("F")
+#define KEY_STATE_PRESSED   ("P")
+#define KEY_STATE_HOLD      ("H")
 
 // Export
-bool IsKeyPressed(int key) { return KeyPressed[key] != "\xFFFF"; }
-bool IsKeyHold(int key){ return KeyPressed[key] == "\x0002"; }
+bool IsKeyPressed(int key) { return KeyPressed[key] != KEY_STATE_CLEAR; }
+bool IsKeyHold(int key){ return KeyPressed[key] == KEY_STATE_HOLD; }
 bool IsMousePressed(int key){ return IsKeyPressed(256 + key); }
 bool IsMouseHold(int key){ return IsKeyHold(256 + key); }
 bool IsCtrlDown(){ return IsKeyPressed(DIK_RCONTROL) || IsKeyPressed(DIK_LCONTROL); }
 bool IsAltDown(){ return IsKeyPressed(DIK_LMENU) || IsKeyPressed(DIK_RMENU); }
 bool IsShiftDown(){ return IsKeyPressed(DIK_LSHIFT) || IsKeyPressed(DIK_RSHIFT); }
 void KeyPress(int key){ 
-    KeyPressed[key] = (KeyPressed[key] != "\xFFFF") ? "\x0002" : "\x0001"; 
+    if(key == DIK_TEXT) return;
+    Message("PRESS "+key);
+    KeyPressed[key] = (KeyPressed[key] != KEY_STATE_CLEAR) ? KEY_STATE_HOLD : KEY_STATE_PRESSED; 
 }
 void MousePress(int key){ KeyPress(256 + key); }
-void KeyUnpress(int key){ KeyPressed[key] = "\xFFFF"; }
+void KeyUnpress(int key){
+    if(key == DIK_TEXT) return;
+    Message("UNPRESS "+key);
+    KeyPressed[key] = KEY_STATE_CLEAR; 
+}
 void MouseUnpress(int key){ KeyUnpress(256 + key); }
 void KeysReset(string& keyPressed){
     string hash;
-    for(uint pos = 0; pos < 300; pos++) hash += "\xFFFF";
-    KeyPressed = hash;
+    for(uint pos = 0; pos < 300; pos++) hash += KEY_STATE_CLEAR;
+    keyPressed = hash;
+}
+string GetKeysHash(){ return KeyPressed; }
+string GetKeysHash(int[] keys, bool isHold = false){
+    string hash;
+    KeysReset(hash);
+    for(uint pos = 0, length = keys.length; pos < length; pos++){
+        if(keys[pos] < 0) { // mouse keys
+            hash[256 - keys[pos]] = isHold ? KEY_STATE_HOLD : KEY_STATE_PRESSED;
+        } else {
+            hash[keys[pos]] = isHold ? KEY_STATE_HOLD : KEY_STATE_PRESSED;
+        }
+    }
+    return hash;
 }
 // Export to gui.fos
 string @ GetKeyPressed() { return KeyPressed; }
 string @ GetMousePressed() { return KeyPressed; }
+
+int[] GetPressedKeyCodes(){
+    int[] result;
+    for(uint pos = 0, length = KeyPressed.length(); pos < length; pos++){
+        if(KeyPressed[pos] != KEY_STATE_CLEAR) result.insertLast(pos);
+    }
+    return result;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Initialization
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void __Exit(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){ // GLOBAL:EXIT (ex-escape)
+    TryExit();
+}
 
 class ScriptInitializer
 {
@@ -46,9 +139,19 @@ class ScriptInitializer
 }
 ScriptInitializer _ScriptInitializer;
 
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Global functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void InputStart(){
+    RegisterCommand("GLOBAL:EXIT",@__Exit);
+    int[] keys = {DIK_ESCAPE};
+    string[][] args;
+    RegisterHotkey(keys, false, "GLOBAL:EXIT", args);
+    RegisterHotkey(keys, true, "GLOBAL:EXIT", args);
+}
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Mouse behaviours. Button states look in _client_defines.fos, Mouse buttons.
@@ -72,6 +175,8 @@ void mouse_move() { // Engine callback
 // Return true to disable engine events.
 void key_down( uint8 key, string@ text ) { // Engine callback
     KeyPress(key);
+    Message("K="+key);
+    if(RunHotkeys()) return;
     // GUI handler
     GUI_EngineCallback_KeyDown( key, text );
 }
@@ -104,17 +209,55 @@ void loop() {
 // Hotkeys & chat commands handler
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-dictionary HotkeyCommands; // Correspondence <Hotkey> : <Command tag>
-dictionary MessageCommands; // Correspondence <Hotkey> : <Command arguments>
-dictionary AllowedCommands; // Correspondence <Command tag> : <Handler function>
-dictionary AllowedArguments; // Correspondence <Command tag> : <Allowed command arguments>
-dictionary CustomCommandArguments; // Correspondence <Command tag : Custom tag> : <int>
+// Running hotkeys
+bool RunHotkeys(){
+    Message("Running hotkeys...");
+    string hash = GetKeysHash();
+    if( HotkeyCommands.exists(hash) ){
+        Message("Found");
+        return true;
+    }
+    Message("Not found");
+    int[] pressed = GetPressedKeyCodes();
+    string kk = "";
+    for(uint pos = 0; pos < pressed.length; pos++) kk += " "+pressed[pos];
+    Message(kk);
+    return false;
+}
+
+// Registering hotkeys
+void RegisterHotkey(string keyHash,string tag, string[][] arguments){
+    CommandHandler@ cmd = CommandHandler(tag, arguments);
+    if(cmd !is null){
+        HotkeyCommands[keyHash] = cmd;
+        Message("Registered hotkey for <"+cmd.Tag+">");
+    }else Message("Failed to register hotkey for <"+tag+">");
+    
+}
+void RegisterHotkey(int[] keys,bool isHold, string tag, string[][] arguments){
+    string hash = GetKeysHash(keys,isHold);
+    RegisterHotkey(hash,tag,arguments);
+}
+void RegisterHotkey(string[] keys,bool isHold, string tag, string[][] arguments){
+    int[] intKeys;
+    for(uint pos = 0, length = keys.length; pos < length; pos++){
+        if( KeyCode.exists(keys[pos]) ){
+            intKeys.insertLast(int(KeyCode[keys[pos]]));
+        }else{
+            Message("ERROR: Can't set hotkey for <"+tag+"> - unknown key <"+keys[pos]+">!");
+            return;
+        }
+    }
+    RegisterHotkey(intKeys,isHold,tag,arguments);
+}
 
 // Registering client script as a command [EXPORT]
-void RegisterCommand(string tag,ClientScriptFunction@ scriptName,int[] allowedArguments){ 
-    @AllowedCommands[tag] = scriptName;
-    AllowedArguments[tag] = allowedArguments;
-    Log("Registered command <"+tag+">");
+void RegisterCommand(string tag,ClientScriptFunction@ clientScript,int[] allowedArguments){ 
+    Command@ cmd = Command(tag,clientScript,allowedArguments);
+    if(cmd !is null){
+        AvailableCommands[tag] = cmd;
+        Message("Registered client command <"+cmd.Tag+">");
+    } else Message( "Failed to register client command <"+tag+">" );
 }
 void RegisterCommand( 
     string tag,
@@ -136,9 +279,11 @@ void RegisterCommand(
 
 // Registering server script as a command [EXPORT]
 void RegisterCommand(string tag,string serverScriptName,int[] allowedArguments){
-    AllowedCommands[tag] = serverScriptName;
-    AllowedCommands[tag] = allowedArguments;
-    Log("Registered command <"+tag+">");
+    Command@ cmd = Command(tag,serverScriptName,allowedArguments);
+    if(cmd !is null){
+        AvailableCommands[tag] = cmd;
+        Message("Registered server command <"+cmd.Tag+">");
+    } else Message("Failed to register server command <"+tag+">");
 }
 void RegisterCommand(
     string tag,
@@ -158,14 +303,6 @@ void RegisterCommand(
     RegisterCommand(tag,serverScriptName,allowedArguments);
 }
 
-// Registering command as hotkey <innerTag> <tag> <[ Arg0:[Type1||Type2], Arg1:[Type1||Type2] ]>
-/*void AddHotkeyCommand(string keyPressed, string tag, string@[][] arguments){
-    HotkeyCommands[keyPressed] = Command(tag,arguments);
-}
-void AddMessageCommand(string messageTag, string tag, string@[][] arguments){
-    MessageCommands[messageTag] = Command(tag,arguments);
-}*/
-
 // Used to validate allowed arguments to argument values type (see <Input.txt>)
 dictionary ArgumentHandlerTypes = {
     {"VOID", ARG_VOID},                     // "VOID"
@@ -178,6 +315,7 @@ dictionary ArgumentHandlerTypes = {
     {"CRITTER:FOV",ARG_CRITTERS},           // "SELF:CRITTER:FOV=60" - visible critters in cone of 60* degree from SELF.FOV
     {"GROUP", ARG_CRITTERS},                // "GROUP" - critter current group, "GROUP=2" - controlled subgroup #2
     {"TARGET", ARG_HEX},                    // "TARGET" - hex under cursor
+    {"TARGET:HEX", ARG_HEX},                    // "TARGET" - hex under cursor
     {"TARGET:ITEM", ARG_ITEM},              // "ITEM" - item under cursor
     {"TARGET:ITEM:RADIUS", ARG_ITEMS},      // "TARGET:ITEM:RADIUS=12" - items in radius of 12 hex around cursor
     {"TARGET:ITEM:FOV",ARG_ITEMS},          // "TARGET:ITEM:FOV=60" - visible items in cone of 30* degree in direction SELF=>TARGET
@@ -201,96 +339,96 @@ ArgumentHandler@ ParseArgumentHandlers(string tag, string macro){
     string name = parts[0]; parts.removeAt(0); // pop first value into name
     string value = join(parts,"="); // join others since they may contain = inside
     
-    if( name == "VOID" or name == "NULL" ) { // see handler description at <ArgumentHandlerTypes>
+    if( "VOID" == name || "NULL" == name ) { // see handler description at <ArgumentHandlerTypes>
         return null;
     } 
-    else if( name == "CUSTOM" && CustomCommandArguments.exists(tag+":"+value) ){
+    else if( "CUSTOM" == name && CustomCommandArguments.exists(tag+":"+value) ){
         int number = int(CustomCommandArguments[tag+":"+value]);
         return ArgumentHandler_CUSTOM(number);
     } 
-    else if( name == "SELF" ) {
+    else if( "SELF" == name ) {
         return ArgumentHandler_SELF();
     }
-    else if( name == "ITEM:RADIUS" ) {
+    else if( "ITEM:RADIUS" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_ITEM_RADIUS(number);
         return null;
     }
-    else if( name == "ITEM:FOV" ) {
+    else if( "ITEM:FOV" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_ITEM_FOV(number);
         return null;
     }
-    else if( name == "CRITTER:RADIUS" ) {
+    else if( "CRITTER:RADIUS" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_CRITTER_RADIUS(number);
         return null;
     }
-    else if( name == "CRITTER:FOV" ) {
+    else if( "CRITTER:FOV" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return  ArgumentHandler_CRITTER_FOV(number);
         return null;
     }
-    else if( name == "GROUP" ) {
+    else if( "GROUP" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_GROUP(number);
         return ArgumentHandler_GROUP();
     }
-    else if( name == "TARGET" ) {
+    else if( "TARGET" == name || "TARGET:HEX" == name ) {
         return ArgumentHandler_TARGET();
     }
-    else if( name == "TARGET:CRITTER" ) {
+    else if( "TARGET:CRITTER" == name ) {
         return ArgumentHandler_TARGET_CRITTER();
     }
-    else if( name == "TARGET:CRITTER:RADIUS" ) {
+    else if( "TARGET:CRITTER:RADIUS" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_TARGET_CRITTER_RADIUS(number);
         return null;
     }
-    else if( name == "TARGET:CRITTER:FOV" ) {
+    else if( "TARGET:CRITTER:FOV" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return  ArgumentHandler_TARGET_CRITTER_FOV(number);   
         return null;
     }
-    else if( name == "TARGET:ITEM" ) {
+    else if( "TARGET:ITEM" == name ) {
         return ArgumentHandler_TARGET_ITEM();
     }
-    else if( name == "TARGET:ITEM:RADIUS" ) {
+    else if( "TARGET:ITEM:RADIUS" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return  ArgumentHandler_TARGET_ITEM_RADIUS(number);
         return null;
     }
-    else if( name == "TARGET:ITEM:FOV" ) {
+    else if( "TARGET:ITEM:FOV" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_TARGET_ITEM_FOV(number);   
         return null;
     }
-    else if( name == "QUICK" ) {
+    else if( "QUICK" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_QUICK(number);   
         return null;
     }
-    else if( name == "SLOT:HAND1" ) {
+    else if( "SLOT:HAND1" == name ) {
         return ArgumentHandler_SLOT(SLOT_HAND1);   
     }
-    else if( name == "SLOT:HAND2" ) {
+    else if( "SLOT:HAND2" == name ) {
         return ArgumentHandler_SLOT(SLOT_HAND2);   
     }
-    else if( name == "SLOT:ARMOR" ) {
+    else if( "SLOT:ARMOR" == name ) {
         return ArgumentHandler_SLOT(SLOT_ARMOR);   
     }
-    else if( name == "SLOT:INV" ) {
+    else if( "SLOT:INV" == name ) {
         return ArgumentHandler_SLOT(SLOT_INV);   
     }
-    else if( name == "SLOT:GROUND" ) {
+    else if( "SLOT:GROUND" == name ) {
         return ArgumentHandler_SLOT(SLOT_GROUND);   
     }
-    else if( name == "NUMBER" ) {
+    else if( "NUMBER" == name ) {
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_NUMBER(number);
         return null;
     }
-    else if( name == "WORD" || name == "PHRASE" ) {
+    else if( "WORD" == name || "PHRASE" == name ) {
         return ArgumentHandler_STRING(value);
     } 
     // Value was typed directly (type unknown) - ARG_CUSTOM|ARG_INT|ARG_STRING
@@ -307,6 +445,138 @@ ArgumentHandler@ ParseArgumentHandlers(string tag, string macro){
     }
     return null; // ARG_VOID
 } 
+// Converts ["SELF","TARGET:CRITTER"]-like macro into a set of sequential OR-divided argument value handlers (see below)
+ArgumentHandler@[] ParseArgumentsHandlers(string tag, string[] macros){
+    ArgumentHandler@[] handlers;
+    for( uint pos = 0, length = macros.length; pos < length; pos++ ){
+        handlers.insertLast( ParseArgumentHandlers(tag,macros[pos]) );
+    }
+    return handlers;
+}
+// Creates a handling matrix for command arguments from [Arg0:["SELF","TARGET:CRITTER"],Arg1:["SLOT:HAND1"]]-like macro
+ArgumentHandler@[][] ParseArgumentsHandlers(string tag, string[][] macros){
+    ArgumentHandler@[][] handlers;
+    handlers.resize(macros.length);
+    for( uint pos = 0, length = macros.length; pos < length; pos++ ){
+        handlers[pos] = ParseArgumentsHandlers(tag,macros[pos]);
+    }
+    return handlers;
+}
+// Returns an array of actual command argument values from argument handlers matrix
+ArgumentValue@[] HandleArgumentValues(ArgumentHandler@[][] handlers){
+    ArgumentValue@[] arguments;
+    arguments.resize(handlers.length);
+    // Handle each argument
+    for( uint aPos = 0, length = handlers.length; aPos < length; aPos++ ){
+        // Handle each available value option inside the argument
+        ArgumentValue@ result = null;
+        for( uint vPos = 0, vLength = handlers[aPos].length; vPos < vLength; vPos++ ){
+            if(result is null) @result = handlers[aPos][vPos].Run();
+        }
+        arguments.insertLast(result);
+    }
+    return arguments;
+}
+// <Input.txt>-parsed command handler for MessageCommands & HotkeyCommands lists
+class CommandHandler
+{
+    string Tag = "";
+    protected ArgumentHandler@[][] ArgHandlers;
+    CommandHandler(string tag, string[][] arguments){
+        this.Tag = tag;
+        this.ArgHandlers = ParseArgumentsHandlers(tag,arguments);
+    }
+    CommandHandler(string tag, ArgumentHandler@[][] argHandlers){
+        this.Tag = tag;
+        this.ArgHandlers = argHandlers;
+    }
+    bool Run(){
+        if( AvailableCommands.exists(this.Tag) ){
+            Command@ command = cast<Command>(AvailableCommands[Tag]);
+            ArgumentValue@[] arguments = HandleArgumentValues(this.ArgHandlers);
+            return command.Run(arguments);
+        }
+        Message("ERROR: Command <"+this.Tag+"> is not registered!");
+        return false;
+    }
+}
+// Registered command entry for AvailableCommands list
+class Command
+{
+    string Tag = "";
+    protected bool IsClientScript = true;
+    protected bool IsUnsafe = true;
+    protected ClientScriptFunction@ ClientScript;
+    protected string ServerScript;
+    protected int[] AllowedArgTypes;
+    Command(string tag, ClientScriptFunction@ clientScript, int[] allowedArgTypes){
+        this.Tag = tag;
+        @this.ClientScript = clientScript;
+        this.AllowedArgTypes = allowedArgTypes;
+        this.IsClientScript = true;
+        this.IsUnsafe = true;
+    }
+    Command(string tag, string serverScript, int[] allowedArgTypes){
+        this.Tag = tag;
+        this.ServerScript = serverScript;
+        this.AllowedArgTypes = allowedArgTypes;
+        this.IsClientScript = false;
+        // unsafe script function starts with "unsafe_" or "module@unsafe_"
+        string@[] parts = split(serverScript,"@");
+        if(parts.length == 1 && parts[0][0] == "u") this.IsUnsafe = true;
+        else if(parts.length > 1 && parts[1][0] == "u") this.IsUnsafe = true;
+        else this.IsUnsafe = false;
+    }
+    bool Run(ArgumentValue@[] arguments){
+        // Check if there are no excess arguments feeded
+        if( this.AllowedArgTypes.length < arguments.length ){
+            Message("ERROR: Too many arguments for command <"+this.Tag+">: <"+arguments.length+"/"+this.AllowedArgTypes.length+">!");
+        }
+        // Fill serializer with arguments & check if all feeded argument types are allowed
+        ArgumentSerializer serializer;
+        for(uint pos = 0, length = arguments.length; pos < length; pos++){
+            if(arguments[pos] !is null){
+                if( arguments[pos] & this.AllowedArgTypes[pos] != ARG_ERROR ){
+                    serializer.Add(arguments[pos].Type, arguments[pos]);    
+                } else {
+                    Message("ERROR: Type <"+arguments[pos].Type+"> is not supported as <"+this.Tag+"> command argument #<"+pos+">!");
+                    return false;
+                }
+            } else {
+                if( ARG_VOID & this.AllowedArgTypes[pos] != ARG_ERROR ){
+                    ArgumentValue value;
+                    value.Type = ARG_VOID;
+                    serializer.Add(value.Type, value);
+                } else {
+                    Message("ERROR: Type <VOID> is not supported as <"+this.Tag+"> command argument #<"+pos+">!");
+                    return false;
+                }
+            }
+        }
+        // Serialize to <string:int[]> package
+        string argStr;
+        int[] argInt;
+        serializer.Serialize(argStr,argInt);
+        // Call bound script with these values
+        if(this.IsClientScript){
+            if(this.ClientScript is null){
+                Message("ERROR: Missing client script handler for command <"+this.Tag+">!");
+                return false;
+            }
+            this.ClientScript(0,0,0,argStr,argInt);
+            return true;
+        } else {
+            if( this.IsUnsafe ){
+                RunServerScriptUnsafe(this.ServerScript,0,0,0,argStr,argInt);
+                return true;
+            } else {
+                RunServerScript(this.ServerScript,0,0,0,argStr,argInt);
+                return true;
+            }
+        }
+    }
+}
+
 // All the handlers mentioned above
 interface ArgumentHandler{ ArgumentValue@ Run(); }
 
@@ -535,52 +805,3 @@ class ArgumentHandler_STRING : ArgumentHandler
     }
 }
 
-// //////////////////////////////////////////////////////////////////////////////////////////////////
-// Соответствие string KEYCODE => int KEYCODE
-dictionary KeyCode = { 
-    // Mouse buttons (inverted to differ from the keyboard subset)
-    {"MLB",-MOUSE_BUTTON_LEFT},{"MRB",-MOUSE_BUTTON_RIGHT},
-    {"MWU",-MOUSE_BUTTON_WHEEL_UP},{"MWD",-MOUSE_BUTTON_WHEEL_DOWN},
-    {"MMB",-MOUSE_BUTTON_MIDDLE},{"M0B",-MOUSE_BUTTON_EXT0},
-    {"M1B",-MOUSE_BUTTON_EXT1},{"M2B",-MOUSE_BUTTON_EXT2},
-    {"M3B",-MOUSE_BUTTON_EXT3},{"M4B",-MOUSE_BUTTON_EXT4},
-    // Numbers
-    {"1",DIK_1},{"2",DIK_2},{"3",DIK_3},{"4",DIK_4},{"5",DIK_5},
-    {"6",DIK_6},{"7",DIK_7},{"8",DIK_8},{"9",DIK_9},{"0",DIK_0},
-    {"NUMPAD1",DIK_NUMPAD1},{"NUMPAD2",DIK_NUMPAD2},
-    {"NUMPAD3",DIK_NUMPAD3},{"NUMPAD4",DIK_NUMPAD4},
-    {"NUMPAD5",DIK_NUMPAD5},{"NUMPAD6",DIK_NUMPAD6},
-    {"NUMPAD7",DIK_NUMPAD7},{"NUMPAD8",DIK_NUMPAD8},
-    {"NUMPAD9",DIK_NUMPAD9},{"NUMPAD0",DIK_NUMPAD0},
-    // Letters
-    {"Q",DIK_Q},{"W",DIK_W},{"E",DIK_E},{"R",DIK_R},{"T",DIK_T},
-    {"Y",DIK_Y},{"U",DIK_U},{"I",DIK_I},{"O",DIK_O},{"P",DIK_P},
-    {"A",DIK_A},{"S",DIK_S},{"D",DIK_D},{"F",DIK_F},{"G",DIK_G},
-    {"H",DIK_H},{"J",DIK_J},{"K",DIK_K},{"L",DIK_L},{"Z",DIK_Z},
-    {"X",DIK_X},{"C",DIK_C},{"V",DIK_V},{"B",DIK_B},{"N",DIK_N},
-    {"M",DIK_M},
-    // Symbols
-    {"SPACE",DIK_SPACE},{"MINUS",DIK_MINUS},
-    {"EQUALS",DIK_EQUALS},{"LBRACKET",DIK_LBRACKET},
-    {"RBRACKET",DIK_RBRACKET},{"SEMICOLON",DIK_SEMICOLON},
-    {"APOSTROPHE",DIK_APOSTROPHE},{"BACKSLASH",DIK_BACKSLASH},
-    {"COMMA",DIK_COMMA},{"PERIOD",DIK_PERIOD},{"MULTIPLY",DIK_MULTIPLY},
-    {"ADD",DIK_ADD},{"SUBTRACT",DIK_SUBTRACT},{"GRAVE",DIK_GRAVE},
-    {"SLASH",DIK_SLASH},{"DECIMAL",DIK_DECIMAL},{"DIVIDE",DIK_DIVIDE},
-    // Arrows
-    {"UP",DIK_UP},{"LEFT",DIK_LEFT},{"RIGHT",DIK_RIGHT},{"DOWN",DIK_DOWN},
-    // F# keys
-    {"F1",DIK_F1},{"F2",DIK_F2},{"F3",DIK_F3},{"F4",DIK_F4},
-    {"F5",DIK_F5},{"F6",DIK_F6},{"F7",DIK_F7},{"F8",DIK_F8},
-    {"F9",DIK_F9},{"F10",DIK_F10},{"F11",DIK_F11},{"F12",DIK_F12},
-    // Other controls
-    {"NUMLOCK",DIK_NUMLOCK},{"NUMPADENTER",DIK_NUMPADENTER},
-    {"ESCAPE",DIK_ESCAPE},{"BACK",DIK_BACK},{"TAB",DIK_TAB},
-    {"RETURN",DIK_RETURN},{"LCONTROL",DIK_LCONTROL},
-    {"LSHIFT",DIK_LSHIFT},{"RSHIFT",DIK_RSHIFT},{"LMENU",DIK_LMENU},
-    {"CAPITAL",DIK_CAPITAL},{"SCROLL",DIK_SCROLL},{"RCONTROL",DIK_RCONTROL},
-    {"SYSRQ",DIK_SYSRQ},{"RMENU",DIK_RMENU},{"PAUSE",DIK_PAUSE},
-    {"HOME",DIK_HOME},{"PRIOR",DIK_PRIOR},{"END",DIK_END},
-    {"NEXT",DIK_NEXT},{"INSERT",DIK_INSERT},{"DELETE",DIK_DELETE},
-    {"LWIN",DIK_LWIN},{"RWIN",DIK_RWIN} 
-};
