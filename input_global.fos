@@ -1,0 +1,42 @@
+#include "input_h.fos"
+
+import void TryExit() from "gui_screens";
+import void NextCursor() from "gui_screens";
+
+void InputGlobalInit()
+{
+	RegisterCommand("GLOBAL:EXIT",@__GlobalExit);
+	RegisterCommand("GLOBAL:DATE",@__GlobalDate);
+	// Default binds
+	string[][] args;
+    RegisterHotkey(Keys(DIK_ESCAPE), false, "GLOBAL:EXIT", args);
+    RegisterHotkey(Keys(DIK_PERIOD), false, "GLOBAL:DATE", args);
+}
+
+// GLOBAL:EXIT (and game menu)
+void __GlobalExit(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){ 
+    TryExit();
+}
+
+// GLOBAL:SHUTDOWN 
+void __GlobalShutdown(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){ 
+	__Quit = true;
+}
+
+// GLOBAL:DUMP 
+void __GlobalDump(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){ 
+	CustomCall( "DumpAtlases" );
+}
+
+// GLOBAL:DATE
+void __GlobalDate(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    string str = "Time: ";
+    str += ( __Day < 10 ? "0" : "" ) + __Day + ".";
+    str += ( __Month < 10 ? "0" : "" ) + __Month + ".";
+    str += __Year + " ";
+    str += ( __Hour < 10 ? "0" : "" ) + __Hour + ":";
+    str += ( __Minute < 10 ? "0" : "" ) + __Minute + ":";
+    str += ( __Second < 10 ? "0" : "" ) + __Second;
+    str += " x" + __TimeMultiplier;
+    Message( str, FOMB_GAME );
+}

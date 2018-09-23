@@ -1,0 +1,335 @@
+#include "_defines.fos"
+#include "input_h.fos"
+#include "gui_h.fos"
+
+import void ThrowingKeyDown( uint8 key ) from "throwing";
+import void ThrowingKeyUp( uint8 key ) from "throwing";
+import void ThrowingInputLost() from "throwing";
+import bool ThrowingMouseDown( int click ) from "throwing";
+
+void InputCritterInit() // CRITTER:
+{
+    // Direction constants 0...7
+	RegisterArgument("N",   "CRITTER:MOVE", 0);
+    RegisterArgument("NE",  "CRITTER:MOVE", 1);
+    RegisterArgument("E",   "CRITTER:MOVE", 2);
+    RegisterArgument("SE",  "CRITTER:MOVE", 3);
+    RegisterArgument("S",   "CRITTER:MOVE", 4);
+    RegisterArgument("SW",  "CRITTER:MOVE", 5);
+    RegisterArgument("W",   "CRITTER:MOVE", 6);
+    RegisterArgument("NW",  "CRITTER:MOVE", 7);
+    // Walk/Run constants 0...1
+    RegisterArgument("WALK","CRITTER:MOVE", 0);
+    RegisterArgument("RUN", "CRITTER:MOVE", 1);
+    // Register command
+    RegisterCommand(
+        "CRITTER:MOVE",
+        @__CritterMove,
+        ARG_CRITTER|ARG_CRITTERS|ARG_VOID,
+        ARG_HEX|ARG_CRITTER|ARG_CUSTOM|ARG_VOID,
+        ARG_CUSTOM|ARG_VOID
+    );
+
+    // Critter rotation
+    //// Command
+    RegisterCommand(
+        "CRITTER:ROTATE",
+        @__CritterRotate,
+        ARG_CRITTER,
+        ARG_CUSTOM
+    );
+    RegisterArgument("LEFT","CRITTER:ROTATE",0);
+    RegisterArgument("RIGHT","CRITTER:ROTATE",1);
+    //// Command
+    string[][] critterRotateArguments = { {"SELF"}, {"DIRECTION"} };
+    critterRotateArguments[1][0] = "LEFT";
+        RegisterHotkey(Keys(DIK_COMMA),         false, "CRITTER:ROTATE", critterRotateArguments);
+    critterRotateArguments[1][0] = "RIGHT";
+        RegisterHotkey(Keys(DIK_PERIOD),         false, "CRITTER:ROTATE", critterRotateArguments);
+
+    //// WASD-movement
+    string[][] wasdArguments = { {"SELF"}, {"DIRECTION"}, {"MODE"} };
+    ////// Walk
+    wasdArguments[2][0] = "WALK";
+    wasdArguments[1][0] = "N";  
+        RegisterHotkey(Keys(DIK_W),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_W),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "NE"; 
+        RegisterHotkey(Keys(DIK_D,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_D,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "E";  
+        RegisterHotkey(Keys(DIK_D),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_D),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "SE"; 
+        RegisterHotkey(Keys(DIK_D,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_D,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "S";  
+        RegisterHotkey(Keys(DIK_S),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_S),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "SW"; 
+        RegisterHotkey(Keys(DIK_A,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_A,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "W";  
+        RegisterHotkey(Keys(DIK_A),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_A),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "NW"; 
+        RegisterHotkey(Keys(DIK_A,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_A,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+    ////// Run
+    wasdArguments[2][0] = "RUN";
+    wasdArguments[1][0] = "N";  
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_W),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_W),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "NE"; 
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_D,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_D,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "E";  
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_D),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_D),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "SE"; 
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_D,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_D,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "S";  
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_S),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_S),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "SW"; 
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_A,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_A,DIK_S),   true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "W";  
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_A),         true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_A),         true, "CRITTER:MOVE", wasdArguments);
+    wasdArguments[1][0] = "NW"; 
+        RegisterHotkey(Keys(DIK_LSHIFT,DIK_A,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+        RegisterHotkey(Keys(DIK_RSHIFT,DIK_A,DIK_W),   true, "CRITTER:MOVE", wasdArguments);
+}
+
+// CRITTER:PICKUP
+void __CritterPickup(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ player = Arguments[0];
+        if( player is GetChosen() ){
+            CustomCall( "TryPickItemOnGround" );
+        }
+    }
+}
+
+// CRITTER:SCREEN
+void __CritterScreen(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER, ARG_CUSTOM) ){
+        CritterCl@ player = Arguments[0];
+        int screen = int(Arguments[1]);
+        if( player is GetChosen() ){
+            GUIScreen@ screen = GUI_GetActiveScreen();
+            if( not ( screen.Index == CLIENT_MAIN_SCREEN_GAME || screen.Index == CLIENT_MAIN_SCREEN_GLOBAL_MAP ) ) {
+                ShowScreen( screen.Index );
+                switch( screen.Index ){
+                    case CLIENT_SCREEN_CHARACTER: 
+                        if( player.ParamBase[ ST_UNSPENT_PERKS ] > 0 ) ShowScreen( CLIENT_SCREEN_PERK );
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// CRITTER:SWITCH:SHOOTBORDER
+void __CritterSwitchShootborder(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ player = Arguments[0];
+        if( player is GetChosen() ){
+            __BordersMode++;
+            if( __BordersMode > 3 ) __BordersMode = 0;
+            CustomCall( "SwitchShootBorders" );
+            if( __BordersMode == BORDERS_EFF_RANGE || __BordersMode == BORDERS_ALL) __ShootBordersEnabled = true;
+            else __ShootBordersEnabled = false;
+        }
+    }
+}
+
+// CRITTER:SWITCH:LOOKBORDER
+void __CritterSwitchLookborder(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ player = Arguments[0];
+        if( player is GetChosen() ){
+            CustomCall( "SwitchLookBorders" );
+        }
+    }
+}
+
+
+// CRITTER:SWITCH:SLOT
+void __CritterSwitchSlot(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ player = Arguments[0];
+        if( player is GetChosen() ){
+            CustomCall( "ChangeSlot" );
+        }
+    }
+}
+
+// CRITTER:SWITCH:FIREMODE
+void __CritterSwitchFiremode(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ player = Arguments[0];
+        if( player is GetChosen() ){
+            CustomCall( "NextItemMode" );
+        }
+    }
+}
+
+// CRITTER:CURSOR:ATTACK
+void __CritterCursorAttack(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ chosen = Arguments[0];
+        if(chosen is GetChosen()){
+            uint8 mode = 0;
+            if( chosen !is null 
+                && chosen.GetSlotProto( SLOT_HAND1, mode ).Type == ITEM_TYPE_WEAPON 
+                && ( mode & 0xF ) < MAX_USES 
+            ) ChangeCursor( CURSOR_USE_WEAPON );
+        }
+    }
+}
+
+// CRITTER:CURSOR:SKILL
+void __CritterCursorSkill(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER,ARG_INT) ) ChangeCursor( CURSOR_USE_SKILL, int(Arguments[0]) );
+}
+
+// CRITTER:ROTATE
+void __CritterRotate(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER, ARG_CUSTOM) ){
+        CritterCl@ player = Arguments[0];
+        int direction = Arguments[1];
+        SetChosenActions( array< uint > = { CHOSEN_DIR, direction, 0, 0, 0, 0, 0 } );
+    }
+}
+
+// CRITTER:FOCUS
+void __CritterFocus(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER,ARG_CRITTER) ){
+        CritterCl@ master = Arguments[0];
+        CritterCl@ slave = Arguments[0];
+        if( master is GetChosen() && master is slave ){
+            MoveScreen( master.HexX, master.HexY, 100, true );
+        }
+    }
+}
+
+// CRITTER:SCROLL
+void __CritterScroll(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ critter = Arguments[0];
+        if( critter is GetChosen() ){
+            LockScreenScroll( critter, true );
+        }
+    }
+}
+
+// CRITTER:SNEAK
+void __CritterSneak(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER) ){
+        CritterCl@ critter = Arguments[0];
+        if( critter is GetChosen() ){
+            SetChosenActions( array< uint > = { CHOSEN_USE_SKL_ON_CRITTER, SK_SNEAK, 0, 0, 0, 0, 0 } );
+        }
+    }
+    
+}
+
+// CRITTER:ID
+void __CritterId(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    __ShowCritId = !__ShowCritId;
+}
+
+// CRITTER:MOVE
+int __wasdAnchor = 0; // Current wASD-top offset (-1 = follow cursor, 0 - N, 1 - NE, 7 - NW)
+bool __geometryViolation = false;
+void __CritterMove(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){
+    ArgumentParser@ Arguments = ArgumentParser(argString,argInt);
+    if( Arguments.MatchPattern(ARG_CRITTER,ARG_CUSTOM,ARG_CUSTOM) ){ // SELF N|NE|E|SE|S|SW|w|NW
+        CritterCl@ player = GetChosen();
+        CritterCl@ puppet = Arguments[0];
+        int direction = int(Arguments[1]);
+        int isRun = int(Arguments[2]);
+        if( player is puppet ){
+            // WASD movement
+            uint[] currentAction;
+            GetChosenActions(currentAction);
+            if( // Do not break unconventional movement
+                __geometryViolation 
+                && currentAction.length == 7 
+                && currentAction[0] == CHOSEN_MOVE
+            ) return;
+            uint16 HexX = player.HexX, HexY = player.HexY;
+            if( __wasdAnchor >= 0 ) switch( (direction + __wasdAnchor) % 8 ){ // Match to camera direction
+                case 0: { // N
+                    __geometryViolation = true;
+                    MoveHexByDir(HexX,HexY,5,1);
+                    MoveHexByDir(HexX,HexY,0,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 1: { // NE
+                    __geometryViolation = false;
+                    MoveHexByDir(HexX,HexY,0,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 2: { // E
+                    __geometryViolation = false;
+                    MoveHexByDir(HexX,HexY,1,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 3: { // SE
+                    __geometryViolation = false;
+                    MoveHexByDir(HexX,HexY,2,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 4: { // S
+                    __geometryViolation = true;
+                    MoveHexByDir(HexX,HexY,3,1);
+                    MoveHexByDir(HexX,HexY,2,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 5: { // SW
+                    __geometryViolation = false;
+                    MoveHexByDir(HexX,HexY,3,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 6: { // W
+                    __geometryViolation = false;
+                    MoveHexByDir(HexX,HexY,4,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+                case 7: { // NW
+                    __geometryViolation = false;
+                    MoveHexByDir(HexX,HexY,5,1);
+                    uint[] action = {CHOSEN_MOVE, int(HexX), int(HexY), isRun, 0, 0, 0};
+                    SetChosenActions(action);
+                } return;
+            } else { // Match to cursor position
+                Message("@@todo");
+                return;
+            }
+        }
+    } 
+    Message("ERROR: Arguments combination is not supported");
+}

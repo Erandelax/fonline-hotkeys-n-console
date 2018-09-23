@@ -5,13 +5,6 @@
 #define __INPUT_MODULE__
 #include "input_h.fos"
 
-
-import void TryExit() from "gui_screens";
-import void NextCursor() from "gui_screens";
-import void ThrowingKeyDown( uint8 key ) from "throwing";
-import void ThrowingKeyUp( uint8 key ) from "throwing";
-import void ThrowingInputLost() from "throwing";
-import bool ThrowingMouseDown( int click ) from "throwing";
 string KeyPressed; // String[keyCode] = {\xFFFF == NOT PRESSED || \x0001 == CLICK || \x0002 == HOLD}
 dictionary HotkeyCommands; // Correspondence <Hotkey> : <Command tag>
 dictionary MessageCommands; // Correspondence <Hotkey> : <Command arguments>
@@ -82,14 +75,12 @@ bool IsCtrlDown(){ return IsKeyPressed(DIK_RCONTROL) || IsKeyPressed(DIK_LCONTRO
 bool IsAltDown(){ return IsKeyPressed(DIK_LMENU) || IsKeyPressed(DIK_RMENU); }
 bool IsShiftDown(){ return IsKeyPressed(DIK_LSHIFT) || IsKeyPressed(DIK_RSHIFT); }
 void KeyPress(int key){ 
-    if(key == DIK_TEXT) return;
-    Message("PRESS "+key);
+    if(key == DIK_TEXT) return; // Do not process ghost keys
     KeyPressed[key] = (KeyPressed[key] != KEY_STATE_CLEAR) ? KEY_STATE_HOLD : KEY_STATE_PRESSED; 
 }
 void MousePress(int key){ KeyPress(256 + key); }
 void KeyUnpress(int key){
     if(key == DIK_TEXT) return;
-    Message("UNPRESS "+key);
     KeyPressed[key] = KEY_STATE_CLEAR; 
 }
 void MouseUnpress(int key){ KeyUnpress(256 + key); }
@@ -127,10 +118,6 @@ int[] GetPressedKeyCodes(){
 // Initialization
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void __Exit(int arg0, int arg1, int arg2, string@ argString, int[]@ argInt){ // GLOBAL:EXIT (ex-escape)
-    TryExit();
-}
-
 class ScriptInitializer
 {
     ScriptInitializer() {
@@ -145,13 +132,16 @@ ScriptInitializer _ScriptInitializer;
 // Global functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+import void InputGlobalInit() from "input_global";
+import void InputCritterInit() from "input_critter";
+
 void InputStart(){
-    RegisterCommand("GLOBAL:EXIT",@__Exit);
-    int[] keys = {DIK_ESCAPE};
-    string[][] args;
-    RegisterHotkey(keys, false, "GLOBAL:EXIT", args);
-    RegisterHotkey(keys, true, "GLOBAL:EXIT", args);
+    // Imports
+    InputGlobalInit();
+    InputCritterInit();
 }
+
+
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Mouse behaviours. Button states look in _client_defines.fos, Mouse buttons.
@@ -174,8 +164,20 @@ void mouse_move() { // Engine callback
 // Keyboard behaviours. Key codes look in _client_defines.fos DirectInput keyboard scan codes.
 // Return true to disable engine events.
 void key_down( uint8 key, string@ text ) { // Engine callback
-    KeyPress(key);
-    Message("K="+key);
+    // Avoid repetaing
+    if( IsKeyHold(key) ) {
+        if( 
+            key != DIK_TEXT 
+            && key != DIK_SPACE 
+            && key != DIK_BACK 
+            && key != DIK_DELETE 
+            && key != DIK_LEFT 
+            && key != DIK_RIGHT 
+        ) return;
+    }
+    // Avoid input box overlap
+    if(!__ConsoleActive) KeyPress(key);
+    // Match hotkeys
     if(RunHotkeys()) return;
     // GUI handler
     GUI_EngineCallback_KeyDown( key, text );
@@ -201,8 +203,8 @@ void input_lost() { // Engine callback
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Should be called in loop to handle hold keys
-void loop() {
-
+void InputLoop() {
+    RunHotkeys();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -210,19 +212,33 @@ void loop() {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Running hotkeys
+uint _runHotkeysTick = 0; // Last run tick
 bool RunHotkeys(){
-    Message("Running hotkeys...");
     string hash = GetKeysHash();
     if( HotkeyCommands.exists(hash) ){
-        Message("Found");
+        // Prevent repeating
+        uint tick = GetTick();
+        if( _runHotkeysTick != tick ) _runHotkeysTick = tick;
+        else return true;
+        // Process hotkey
+        cast<CommandHandler>(HotkeyCommands[hash]).Run();
         return true;
     }
-    Message("Not found");
-    int[] pressed = GetPressedKeyCodes();
-    string kk = "";
-    for(uint pos = 0; pos < pressed.length; pos++) kk += " "+pressed[pos];
-    Message(kk);
     return false;
+}
+
+// Creates keycodes array from keycodes arguments
+int[] Keys(int key0 = 0, int key1 = 0, int key2 = 0, int key3 = 0, int key4 = 0, int key5 = 0, int key6 = 0, int key7 = 0){
+    int[] keys;
+    if(key0 != 0) keys.insertLast(key0);
+    if(key1 != 0) keys.insertLast(key1);
+    if(key2 != 0) keys.insertLast(key2);
+    if(key3 != 0) keys.insertLast(key3);
+    if(key4 != 0) keys.insertLast(key4);
+    if(key5 != 0) keys.insertLast(key5);
+    if(key6 != 0) keys.insertLast(key6);
+    if(key7 != 0) keys.insertLast(key7);
+    return keys;
 }
 
 // Registering hotkeys
@@ -230,8 +246,8 @@ void RegisterHotkey(string keyHash,string tag, string[][] arguments){
     CommandHandler@ cmd = CommandHandler(tag, arguments);
     if(cmd !is null){
         HotkeyCommands[keyHash] = cmd;
-        Message("Registered hotkey for <"+cmd.Tag+">");
-    }else Message("Failed to register hotkey for <"+tag+">");
+        Log("Registered hotkey for <"+cmd.Tag+">");
+    }else Log("Failed to register hotkey for <"+tag+">");
     
 }
 void RegisterHotkey(int[] keys,bool isHold, string tag, string[][] arguments){
@@ -250,16 +266,20 @@ void RegisterHotkey(string[] keys,bool isHold, string tag, string[][] arguments)
     }
     RegisterHotkey(intKeys,isHold,tag,arguments);
 }
-
+// Register custom argument for command
+void RegisterArgument(string custom, string tag, int value){ // EXPORT <import void RegisterArgument(string,string,int) from "input";>
+    Log("Registered custom argument <"+tag+":"+custom+">="+value);
+    CustomCommandArguments.set(tag+":"+custom,value);
+}
 // Registering client script as a command [EXPORT]
 void RegisterCommand(string tag,ClientScriptFunction@ clientScript,int[] allowedArguments){ 
     Command@ cmd = Command(tag,clientScript,allowedArguments);
     if(cmd !is null){
         AvailableCommands[tag] = cmd;
-        Message("Registered client command <"+cmd.Tag+">");
-    } else Message( "Failed to register client command <"+tag+">" );
+        Log("Registered client command <"+cmd.Tag+">");
+    } else Log( "Failed to register client command <"+tag+">" );
 }
-void RegisterCommand( 
+void RegisterCommand(  // EXPORT <import void RegisterCommand(string,ClientScriptFunction@,int,int,int,int,int,int,int,int,int,int) from "input";>
     string tag,
     ClientScriptFunction@ scriptName,
     int arg0 = ARG_VOID,
@@ -282,8 +302,8 @@ void RegisterCommand(string tag,string serverScriptName,int[] allowedArguments){
     Command@ cmd = Command(tag,serverScriptName,allowedArguments);
     if(cmd !is null){
         AvailableCommands[tag] = cmd;
-        Message("Registered server command <"+cmd.Tag+">");
-    } else Message("Failed to register server command <"+tag+">");
+        Log("Registered server command <"+cmd.Tag+">");
+    } else Log("Failed to register server command <"+tag+">");
 }
 void RegisterCommand(
     string tag,
@@ -315,7 +335,7 @@ dictionary ArgumentHandlerTypes = {
     {"CRITTER:FOV",ARG_CRITTERS},           // "SELF:CRITTER:FOV=60" - visible critters in cone of 60* degree from SELF.FOV
     {"GROUP", ARG_CRITTERS},                // "GROUP" - critter current group, "GROUP=2" - controlled subgroup #2
     {"TARGET", ARG_HEX},                    // "TARGET" - hex under cursor
-    {"TARGET:HEX", ARG_HEX},                    // "TARGET" - hex under cursor
+    {"TARGET:HEX", ARG_HEX},                // "TARGET" - hex under cursor
     {"TARGET:ITEM", ARG_ITEM},              // "ITEM" - item under cursor
     {"TARGET:ITEM:RADIUS", ARG_ITEMS},      // "TARGET:ITEM:RADIUS=12" - items in radius of 12 hex around cursor
     {"TARGET:ITEM:FOV",ARG_ITEMS},          // "TARGET:ITEM:FOV=60" - visible items in cone of 30* degree in direction SELF=>TARGET
@@ -335,114 +355,145 @@ dictionary ArgumentHandlerTypes = {
 
 // Transforms <Commands.fos> argument syntax (aka TY:PE=VALUE) into proper ArgumentHandler class
 ArgumentHandler@ ParseArgumentHandlers(string tag, string macro){
+    //Message("HNDL: "+tag+":"+macro);
     string@[] parts = split(macro,"=");
     string name = parts[0]; parts.removeAt(0); // pop first value into name
-    string value = join(parts,"="); // join others since they may contain = inside
+    string value = "";
+    if( parts.length > 0 ) value = join(parts,"="); // join others since they may contain = inside
     
     if( "VOID" == name || "NULL" == name ) { // see handler description at <ArgumentHandlerTypes>
+        //Message("{VOID}");
         return null;
     } 
     else if( "CUSTOM" == name && CustomCommandArguments.exists(tag+":"+value) ){
         int number = int(CustomCommandArguments[tag+":"+value]);
+        //Message("{CUSTOM<"+value+"="+number+">}");
         return ArgumentHandler_CUSTOM(number);
     } 
     else if( "SELF" == name ) {
+        //Message("{SELF}");
         return ArgumentHandler_SELF();
     }
     else if( "ITEM:RADIUS" == name ) {
+        //Message("{ITEM:RADIUS}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_ITEM_RADIUS(number);
         return null;
     }
     else if( "ITEM:FOV" == name ) {
+        //Message("{ITEM:FOV}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_ITEM_FOV(number);
         return null;
     }
     else if( "CRITTER:RADIUS" == name ) {
+        //Message("{CRITTER:RADIUS}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_CRITTER_RADIUS(number);
         return null;
     }
     else if( "CRITTER:FOV" == name ) {
+        //Message("{CRITTER:FOV}");
         int number = 0;
         if( StrToInt(value,number) ) return  ArgumentHandler_CRITTER_FOV(number);
         return null;
     }
     else if( "GROUP" == name ) {
+        //Message("{GROUP}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_GROUP(number);
         return ArgumentHandler_GROUP();
     }
     else if( "TARGET" == name || "TARGET:HEX" == name ) {
+        //Message("{TARGET}");
         return ArgumentHandler_TARGET();
     }
     else if( "TARGET:CRITTER" == name ) {
+        //Message("{TARGET:CRITTER}");
         return ArgumentHandler_TARGET_CRITTER();
     }
     else if( "TARGET:CRITTER:RADIUS" == name ) {
+        //Message("{TARGET:RADIUS}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_TARGET_CRITTER_RADIUS(number);
         return null;
     }
     else if( "TARGET:CRITTER:FOV" == name ) {
+        //Message("{TARGET:CRITTER:FOV}");
         int number = 0;
         if( StrToInt(value,number) ) return  ArgumentHandler_TARGET_CRITTER_FOV(number);   
         return null;
     }
     else if( "TARGET:ITEM" == name ) {
+        //Message("{TARGET:ITEM}");
         return ArgumentHandler_TARGET_ITEM();
     }
     else if( "TARGET:ITEM:RADIUS" == name ) {
+        //Message("{TARGET:ITEM:RADIUS}");
         int number = 0;
         if( StrToInt(value,number) ) return  ArgumentHandler_TARGET_ITEM_RADIUS(number);
         return null;
     }
     else if( "TARGET:ITEM:FOV" == name ) {
+        //Message("{TARGET:ITEM:FOV}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_TARGET_ITEM_FOV(number);   
         return null;
     }
     else if( "QUICK" == name ) {
+        //Message("{QUICK}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_QUICK(number);   
         return null;
     }
     else if( "SLOT:HAND1" == name ) {
+        //Message("{SLOT:HAND1}");
         return ArgumentHandler_SLOT(SLOT_HAND1);   
     }
     else if( "SLOT:HAND2" == name ) {
+        //Message("{SLOT:HAND2}");
         return ArgumentHandler_SLOT(SLOT_HAND2);   
     }
     else if( "SLOT:ARMOR" == name ) {
+        //Message("{SLOT:ARMOR}");
         return ArgumentHandler_SLOT(SLOT_ARMOR);   
     }
     else if( "SLOT:INV" == name ) {
+        //Message("{SLOT:INV}");
         return ArgumentHandler_SLOT(SLOT_INV);   
     }
     else if( "SLOT:GROUND" == name ) {
+        //Message("{SLOT:GROUND}");
         return ArgumentHandler_SLOT(SLOT_GROUND);   
     }
     else if( "NUMBER" == name ) {
+        //Message("{NUMBER}");
         int number = 0;
         if( StrToInt(value,number) ) return ArgumentHandler_NUMBER(number);
         return null;
     }
     else if( "WORD" == name || "PHRASE" == name ) {
+        //Message("{WORD}");
         return ArgumentHandler_STRING(value);
     } 
+
     // Value was typed directly (type unknown) - ARG_CUSTOM|ARG_INT|ARG_STRING
     int number = 0;
     if( CustomCommandArguments.exists(tag+":"+macro) ){ // Attempt to find ARG_CUSTOM
-        if( StrToInt(value,number) ) return ArgumentHandler_CUSTOM(number);
-        return null;
+        number = int(CustomCommandArguments[tag+":"+macro]);
+        //Message("{RAW CUSTOM<"+macro+">="+number+"}");
+        return ArgumentHandler_CUSTOM(number);
     } 
     else if( StrToInt(macro,number) ) { // Attempt to get generic ARG_INT
+        //Message("{RAW INT}");
         return ArgumentHandler_NUMBER(number);
     }
     else if( macro.length() > 0 ){ // Attempt to find ARG_STRING
+        //Message("{RAW STRING}");
         return ArgumentHandler_STRING(macro);
     }
+
+    //Message("{VOID}");
     return null; // ARG_VOID
 } 
 // Converts ["SELF","TARGET:CRITTER"]-like macro into a set of sequential OR-divided argument value handlers (see below)
@@ -466,14 +517,20 @@ ArgumentHandler@[][] ParseArgumentsHandlers(string tag, string[][] macros){
 ArgumentValue@[] HandleArgumentValues(ArgumentHandler@[][] handlers){
     ArgumentValue@[] arguments;
     arguments.resize(handlers.length);
+
     // Handle each argument
     for( uint aPos = 0, length = handlers.length; aPos < length; aPos++ ){
         // Handle each available value option inside the argument
         ArgumentValue@ result = null;
         for( uint vPos = 0, vLength = handlers[aPos].length; vPos < vLength; vPos++ ){
-            if(result is null) @result = handlers[aPos][vPos].Run();
+            if(result is null) { // If previous handler failed (result==<null>), try current one
+                if(handlers[aPos][vPos] is null) @result = null;
+                else @result = handlers[aPos][vPos].Run();
+            } 
         }
-        arguments.insertLast(result);
+        //if(result is null) Message(aPos+"=NULL");
+        //else Message("Argument#"+aPos+"<"+result.Type+">");
+        @arguments[aPos] = result;
     }
     return arguments;
 }
@@ -491,9 +548,12 @@ class CommandHandler
         this.ArgHandlers = argHandlers;
     }
     bool Run(){
+        //Message("------------ command ------------");
+        //Message("Running <"+this.Tag+">");
         if( AvailableCommands.exists(this.Tag) ){
             Command@ command = cast<Command>(AvailableCommands[Tag]);
             ArgumentValue@[] arguments = HandleArgumentValues(this.ArgHandlers);
+            //Message("...passing arguments to handler");
             return command.Run(arguments);
         }
         Message("ERROR: Command <"+this.Tag+"> is not registered!");
@@ -532,11 +592,12 @@ class Command
         if( this.AllowedArgTypes.length < arguments.length ){
             Message("ERROR: Too many arguments for command <"+this.Tag+">: <"+arguments.length+"/"+this.AllowedArgTypes.length+">!");
         }
+        //Message("...serializing arguments");
         // Fill serializer with arguments & check if all feeded argument types are allowed
         ArgumentSerializer serializer;
         for(uint pos = 0, length = arguments.length; pos < length; pos++){
             if(arguments[pos] !is null){
-                if( arguments[pos] & this.AllowedArgTypes[pos] != ARG_ERROR ){
+                if( arguments[pos].Type & this.AllowedArgTypes[pos] != ARG_ERROR ){
                     serializer.Add(arguments[pos].Type, arguments[pos]);    
                 } else {
                     Message("ERROR: Type <"+arguments[pos].Type+"> is not supported as <"+this.Tag+"> command argument #<"+pos+">!");
@@ -557,19 +618,23 @@ class Command
         string argStr;
         int[] argInt;
         serializer.Serialize(argStr,argInt);
+        //Message("...packing arguments <"+(argStr.length() + argInt.length*4)+"> bytes");
         // Call bound script with these values
         if(this.IsClientScript){
             if(this.ClientScript is null){
                 Message("ERROR: Missing client script handler for command <"+this.Tag+">!");
                 return false;
             }
+            //Message("...running client script");
             this.ClientScript(0,0,0,argStr,argInt);
             return true;
         } else {
             if( this.IsUnsafe ){
+                //Message("...running unsafe server script");
                 RunServerScriptUnsafe(this.ServerScript,0,0,0,argStr,argInt);
                 return true;
             } else {
+                //Message("...running safe server script");
                 RunServerScript(this.ServerScript,0,0,0,argStr,argInt);
                 return true;
             }
@@ -586,6 +651,7 @@ class ArgumentHandler_CUSTOM : ArgumentHandler
     ArgumentHandler_CUSTOM(int value){ this.value = value; }
 
     ArgumentValue@ Run(){ // Get custom named <int>
+        //Message("...[CUSTOM="+this.value+"]");
         ArgumentValue value = this.value;
         value.Type = ARG_CUSTOM;
         return value;
@@ -595,6 +661,7 @@ class ArgumentHandler_CUSTOM : ArgumentHandler
 class ArgumentHandler_SELF : ArgumentHandler 
 {
     ArgumentValue@ Run(){ // Get Chosen.Id
+        //Message("...[SELF]");
         CritterCl@ cr = GetChosen();
         if(cr is null) return null;
         ArgumentValue value = cr.Id;
@@ -609,6 +676,7 @@ class ArgumentHandler_ITEM_RADIUS : ArgumentHandler
     ArgumentHandler_ITEM_RADIUS(int radius){ this.radius = radius; }
 
     ArgumentValue@ Run(){
+        //Message("...[ITEM_RADIUS]");
         return null; // @@todo
     }
 }
@@ -619,6 +687,7 @@ class ArgumentHandler_ITEM_FOV : ArgumentHandler
     ArgumentHandler_ITEM_FOV(int angle) { this.angle = angle; }
 
     ArgumentValue@ Run(){
+        //Message("...[ITEM_FOV]");
         return null; // @@todo
     }
 }
@@ -629,6 +698,7 @@ class ArgumentHandler_CRITTER_RADIUS : ArgumentHandler
     ArgumentHandler_CRITTER_RADIUS(int radius){ this.radius = radius; }
 
     ArgumentValue@ Run(){
+        //Message("...[CRITTER_RADIUS]");
         return null; // @@todo
     }
 }
@@ -639,6 +709,7 @@ class ArgumentHandler_CRITTER_FOV : ArgumentHandler
     ArgumentHandler_CRITTER_FOV(int angle) { this.angle = angle; }
 
     ArgumentValue@ Run(){
+        //Message("...[CRITTER_FOV]");
         return null; // @@todo
     }
 }
@@ -650,6 +721,7 @@ class ArgumentHandler_GROUP : ArgumentHandler
     ArgumentHandler_GROUP(int id){ this.id = id; }
 
     ArgumentValue@ Run(){
+        //Message("...[GROUP]");
         return null; // @@todo
     }
 }
@@ -657,6 +729,7 @@ class ArgumentHandler_GROUP : ArgumentHandler
 class ArgumentHandler_TARGET : ArgumentHandler 
 {
     ArgumentValue@ Run(){ // Get hex under cursor XY
+        //Message("...[TARGET]");
         uint16 x = 0, y = 0;
         if( GetMonitorHex( __MouseX, __MouseY, x, y ) ){
             uint16[] coords = { x, y };
@@ -671,6 +744,7 @@ class ArgumentHandler_TARGET : ArgumentHandler
 class ArgumentHandler_TARGET_CRITTER : ArgumentHandler 
 {
     ArgumentValue@ Run(){ // Get critter under cursor XY
+        //Message("...[TARGET_CRITTER]");
         CritterCl@ cr =  GetMonitorCritter( __MouseX, __MouseY );
         if(cr is null) return null;
         ArgumentValue value = cr.Id;
@@ -685,6 +759,7 @@ class ArgumentHandler_TARGET_CRITTER_RADIUS : ArgumentHandler
     ArgumentHandler_TARGET_CRITTER_RADIUS(int radius){ this.radius = radius; }
 
     ArgumentValue@ Run(){
+        //Message("[TARGET_CRITTER_RADIUS]");
         return null; // @@todo
     }
 }
@@ -697,6 +772,7 @@ class ArgumentHandler_TARGET_CRITTER_FOV : ArgumentHandler
     }
 
     ArgumentValue@ Run(){
+        //Message("...[TARGET_CRITTER_FOV]");
         return null; // @@todo
     }
 }
@@ -704,6 +780,7 @@ class ArgumentHandler_TARGET_CRITTER_FOV : ArgumentHandler
 class ArgumentHandler_TARGET_ITEM : ArgumentHandler 
 {
     ArgumentValue@ Run(){ // Get item under cursor ID
+        //Message("...[TARGET_ITEM]");
         ItemCl@ cr =  GetMonitorItem( __MouseX, __MouseY );
         if(cr is null) return null;
         ArgumentValue value = cr.Id;
@@ -718,6 +795,7 @@ class ArgumentHandler_TARGET_ITEM_RADIUS : ArgumentHandler
     ArgumentHandler_TARGET_ITEM_RADIUS(int radius){ this.radius = radius; }
 
     ArgumentValue@ Run(){
+        //Message("...[TARGET_ITEM_RADIUS]");
         return null; // @@todo
     }
 }
@@ -730,6 +808,7 @@ class ArgumentHandler_TARGET_ITEM_FOV : ArgumentHandler
     }
 
     ArgumentValue@ Run(){
+        //Message("...[TARGET_ITEM_FOV]");
         return null; // @@todo
     }
 }
@@ -743,6 +822,7 @@ class ArgumentHandler_QUICK : ArgumentHandler
     }
 
     ArgumentValue@ Run(){ // Get quickbar item id from slotid
+        //Message("...[QUICK]");
         ItemCl@ item = quickItem(this.SlotId);
         if(item is null) return null;
         ArgumentValue value = item.Id;
@@ -759,6 +839,7 @@ class ArgumentHandler_SLOT : ArgumentHandler
     }
 
     ArgumentValue@ Run(){ // Get item.id from chosen' slot
+        //Message("...[SLOT]");
         CritterCl@ cr = GetChosen();
         if(cr is null) return null;
         if( SLOT_ARMOR == this.SlotId || SLOT_HAND1 == this.SlotId || SLOT_HAND2 == this.SlotId ){
@@ -787,6 +868,7 @@ class ArgumentHandler_NUMBER : ArgumentHandler
     ArgumentHandler_NUMBER(int preset = 0){ this.Preset = preset; }
 
     ArgumentValue@ Run(){ // Get custom <int>
+        //Message("...[NUMBER="+this.Preset+"]");
         ArgumentValue value = this.Preset;
         value.Type = ARG_INT;
         return value;
@@ -799,6 +881,7 @@ class ArgumentHandler_STRING : ArgumentHandler
     ArgumentHandler_STRING(string value){ this.value = value; }
 
     ArgumentValue@ Run(){ // Get custom <string>
+        //Message("...[STRING="+this.value+"]");
         ArgumentValue value = this.value;
         value.Type = ARG_STRING;
         return value;

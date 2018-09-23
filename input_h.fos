@@ -3,16 +3,6 @@
 
 #include "_client_defines.fos"
 
-#ifndef __INPUT_MODULE__
-import bool IsKeyPressed( int key ) from "input";
-import bool IsMousePressed( int button ) from "input";
-import bool IsCtrlDown() from "input";
-import bool IsAltDown() from "input";
-import bool IsShiftDown() from "input";
-#endif
-
-#endif // __INPUT__
-
 //////////////////////////////////////////////////////////////////////////////*/
 // Command argument types
 #define ARG_ERROR 				(0)     // Should not exist anywhere
@@ -27,6 +17,25 @@ import bool IsShiftDown() from "input";
 #define ARG_HEX					(1<<8)  // Hex coordinates <uint16[](2)>
 #define ARG_PATH 				(1<<9)  // Hex coordinates pair <uint16[](4)>
 #define ARG_CUSTOM 				(1<<10)  // Custom argument value <int>
+
+#ifndef __INPUT_MODULE__
+import bool IsKeyPressed(int) from "input";
+import bool IsMousePressed(int) from "input";
+import bool IsCtrlDown() from "input";
+import bool IsAltDown() from "input";
+import bool IsShiftDown() from "input";
+import void RegisterCommand(string,ClientScriptFunction@,int[]) from "input";
+import void RegisterCommand(string tag,ClientScriptFunction@ scriptName,int arg0 = ARG_VOID,int arg1 = ARG_VOID,int arg2 = ARG_VOID,int arg3 = ARG_VOID,int arg4 = ARG_VOID,int arg5 = ARG_VOID,int arg6 = ARG_VOID,int arg7 = ARG_VOID,int arg8 = ARG_VOID,int arg9 = ARG_VOID) from "input";
+import void RegisterCommand(string,string,int[]) from "input";
+import void RegisterCommand(string tag,string serverScriptName,int arg0 = ARG_VOID,int arg1 = ARG_VOID,int arg2 = ARG_VOID,int arg3 = ARG_VOID,int arg4 = ARG_VOID,int arg5 = ARG_VOID,int arg6 = ARG_VOID,int arg7 = ARG_VOID,int arg8 = ARG_VOID,int arg9 = ARG_VOID) from "input";
+import void RegisterArgument(string,string,int) from "input";
+import void RegisterHotkey(string,string,string[][]) from "input";
+import void RegisterHotkey(int[],bool,string,string[][]) from "input";
+import void RegisterHotkey(string[],bool,string,string[][]) from "input";
+import int[] Keys(int key0 = 0, int key1 = 0, int key2 = 0, int key3 = 0, int key4 = 0, int key5 = 0, int key6 = 0, int key7 = 0) from "input";
+#endif
+
+#endif // __INPUT__
 
 // Алиасы сущностей для клиента
 #ifdef __CLIENT
@@ -209,6 +218,22 @@ shared class ArgumentParser
 {
 	protected ArgumentValue[] Arg;
 	protected int[] ArgTypes;
+	// Количество аргументов <.length>
+	uint length{
+		get const{
+			return this.ArgTypes.length;
+		}
+	}
+	// Get argument #
+	ArgumentValue@ opIndex(int index){
+		if(this.Arg.length <= index){
+			ArgumentValue emptyness;
+			emptyness.Type = ARG_VOID;
+			return emptyness;
+		} else {
+			return this.Arg[index];
+		}
+	}
 	// Соответствует ли аргумент <argPos> типу <argType>
 	bool MatchType(uint argPos, int argType){
 		if(this.ArgTypes.length <= argPos) return argType == ARG_VOID; 
@@ -240,10 +265,15 @@ shared class ArgumentParser
 	}
 	ArgumentParser(string argString, int[]@ argInt){
 		int sPos = 0, iPos = 0, aPos = 0; // Текущая позиция в argString, argInt и Arg|ArgTypes;
-		if(argInt.length < 2) return; // Массив аргументов слишком мал
-		if(argInt[iPos++] != 777) return; // Первое значение массива должно быть 777
+		if(argInt.length < 2) { // Массив аргументов слишком мал либо пуст
+			return; 
+		}
+		if(argInt[iPos++] != 777) {  // Первое значение массива должно быть 777
+			Message("ERROR: Frame type can not be parsed!");
+			return;
+		}
 		// Обрабатываем каждое значение массива
-		for( uint pos = 0, length = argInt.length; pos < length; pos++ ){
+		for( uint pos = 0, length = argInt.length; iPos < length; pos++ ){
 			// Первый элемент кадра - тип аргумента
 			this.ArgTypes.resize(aPos + 1); 
 			this.Arg.resize(aPos + 1);
@@ -280,13 +310,13 @@ shared class ArgumentParser
 				// Координаты - два гекса подряд		
 				case ARG_HEX: {
 					uint16[] arr = { uint16(argInt[iPos++]), uint16(argInt[iPos++]) };
-					this.Arg[pos] = arr;
+					this.Arg[aPos] = arr;
 				} break;
 
 				// Путь - две координаты подряд
 				case ARG_PATH: {
 					uint16[] arr = { uint16(argInt[iPos++]), uint16(argInt[iPos++]), uint16(argInt[iPos++]), uint16(argInt[iPos++]) };
-					this.Arg[pos] = arr;
+					this.Arg[aPos] = arr;
 				} break;
 
 				// ARG_VOID, отсутствующий аргумент
